@@ -33,7 +33,10 @@
     maxField: '',
     maxAggregation: 'MAX',
     maxMultiplier: 1.5,
-    // Shared Goal reference field (optional) — resolved like the Value Field.
+    // Shared Goal reference (optional). goalMode: 'none' | 'fixed' | 'field'
+    //   'fixed' uses goalValue; 'field' is resolved like the Value Field.
+    goalMode: 'field',
+    goalValue: 0,
     goalField: '',
     goalAggregation: 'SUM',
     title: 'Gauge',
@@ -66,6 +69,13 @@
     // Percentage mode: 'off' | 'auto' | 'pct0to1' | 'pct0to100'
     percentageMode: 'off',
     percentDecimals: 0,
+    // Display mode: 'needle' | 'fill' | 'needle+fill'
+    //   'needle'      — classic needle/marker (legacy default)
+    //   'fill'        — progress fill Min→Current, inheriting band colors
+    //   'needle+fill' — both (recommended for new configs)
+    displayMode: 'needle+fill',
+    // Neutral background track shown behind the progress fill.
+    trackColor: '#e9ecef',
   };
 
   const R = window.GaugeResolve; // shared resolution/validation helpers
@@ -362,8 +372,19 @@
 
     const g = svg.append('g').attr('transform', `translate(${cx},${cy})`);
 
-    // ── Colored range arcs ──
-    if (config.useGradient) {
+    // Display mode governs how the current value is depicted.
+    const dispMode = config.displayMode || 'needle';
+    const showFill = (dispMode === 'fill' || dispMode === 'needle+fill');
+    const showNeedle = (dispMode === 'needle' || dispMode === 'needle+fill');
+
+    // ── Colored range arcs / progress fill ──
+    if (showFill) {
+      // PROGRESS FILL MODE: a neutral background track spanning the whole scale,
+      // overlaid with a colored fill from Min → Current Value that inherits the
+      // colors of the threshold bands it passes through.
+      renderCircularTrack(g, innerRadius, radius);
+      renderCircularFillSegments(g, innerRadius, radius);
+    } else if (config.useGradient) {
       // GRADIENT MODE: render many thin arc slices with interpolated colors
       renderCircularGradientArcs(g, innerRadius, radius, angles);
     } else {
@@ -442,40 +463,42 @@
     }
 
     // ── Needle / Pointer ──
-    const needleLen = radius * 0.92;
-    const needleAngle = valueToAngle(currentValue);
-    const needleGroup = g.append('g').attr('class', 'gauge-needle');
+    if (showNeedle) {
+      const needleLen = radius * 0.92;
+      const needleAngle = valueToAngle(currentValue);
+      const needleGroup = g.append('g').attr('class', 'gauge-needle');
 
-    if (config.enableTooltip) {
-      needleGroup
-        .on('mouseenter', function (event) {
-          const rangeInfo = findRangeForValue(currentValue);
-          showTooltip(event, config.title || 'Value', formatValue(currentValue),
-            rangeInfo ? rangeInfo.label : '');
-        })
-        .on('mousemove', function (event) { moveTooltip(event); })
-        .on('mouseleave', hideTooltip);
-    }
+      if (config.enableTooltip) {
+        needleGroup
+          .on('mouseenter', function (event) {
+            const rangeInfo = findRangeForValue(currentValue);
+            showTooltip(event, config.title || 'Value', formatValue(currentValue),
+              rangeInfo ? rangeInfo.label : '');
+          })
+          .on('mousemove', function (event) { moveTooltip(event); })
+          .on('mouseleave', hideTooltip);
+      }
 
-    const nw = 4;
-    needleGroup.append('polygon')
-      .attr('points', `0,${-needleLen} ${-nw},0 ${nw},0`)
-      .attr('fill', config.needleColor);
-    needleGroup.append('circle')
-      .attr('r', 7)
-      .attr('fill', config.needleColor);
+      const nw = 4;
+      needleGroup.append('polygon')
+        .attr('points', `0,${-needleLen} ${-nw},0 ${nw},0`)
+        .attr('fill', config.needleColor);
+      needleGroup.append('circle')
+        .attr('r', 7)
+        .attr('fill', config.needleColor);
 
-    if (animateNeedle && config.animate) {
-      const startAngleDeg = (valueToAngle(config.minValue) * 180) / Math.PI;
-      const endAngleDeg   = (needleAngle * 180) / Math.PI;
-      needleGroup
-        .attr('transform', `rotate(${startAngleDeg})`)
-        .transition()
-        .duration(1200)
-        .ease(d3.easeElasticOut.amplitude(1).period(0.6))
-        .attr('transform', `rotate(${endAngleDeg})`);
-    } else {
-      needleGroup.attr('transform', `rotate(${(needleAngle * 180) / Math.PI})`);
+      if (animateNeedle && config.animate) {
+        const startAngleDeg = (valueToAngle(config.minValue) * 180) / Math.PI;
+        const endAngleDeg   = (needleAngle * 180) / Math.PI;
+        needleGroup
+          .attr('transform', `rotate(${startAngleDeg})`)
+          .transition()
+          .duration(1200)
+          .ease(d3.easeElasticOut.amplitude(1).period(0.6))
+          .attr('transform', `rotate(${endAngleDeg})`);
+      } else {
+        needleGroup.attr('transform', `rotate(${(needleAngle * 180) / Math.PI})`);
+      }
     }
 
     // ── Center value text ──
@@ -524,6 +547,60 @@
       }
       if (config.enableFilter) {
         segment.on('click', function () { filterByRange(range); });
+      }
+    });
+  }
+
+  // ── Circular Progress Track (neutral background behind the fill) ──
+
+  function renderCircularTrack(g, innerRadius, radius) {
+    const arcGen = d3.arc()
+      .innerRadius(innerRadius)
+      .outerRadius(radius)
+      .cornerRadius(2);
+    const startAngle = valueToAngle(config.minValue);
+    const endAngle = valueToAngle(config.maxValue);
+    if (endAngle <= startAngle) return;
+    g.append('path')
+      .attr('class', 'gauge-track')
+      .attr('d', arcGen({ startAngle, endAngle }))
+      .attr('fill', config.trackColor || '#e9ecef');
+  }
+
+  // ── Circular Progress Fill (Min → Current, inheriting band colors) ──
+
+  function renderCircularFillSegments(g, innerRadius, radius) {
+    if (!R) return;
+    const segments = R.computeFillSegments(resolvedRanges, config.minValue, currentValue, config.maxValue);
+    const arcGen = d3.arc()
+      .innerRadius(innerRadius)
+      .outerRadius(radius)
+      .cornerRadius(2);
+
+    segments.forEach((seg, idx) => {
+      const startAngle = valueToAngle(Math.max(seg.from, config.minValue));
+      const endAngle = valueToAngle(Math.min(seg.to, config.maxValue));
+      if (endAngle <= startAngle) return;
+
+      const path = g.append('path')
+        .attr('class', 'gauge-fill-segment')
+        .attr('d', arcGen({ startAngle, endAngle }))
+        .attr('fill', seg.color)
+        .attr('data-index', idx);
+
+      if (config.enableTooltip) {
+        path
+          .on('mouseenter', function (event) {
+            const rangeInfo = findRangeForValue(currentValue);
+            showTooltip(event, config.title || 'Value', formatValue(currentValue),
+              rangeInfo ? rangeInfo.label : (seg.label || ''));
+          })
+          .on('mousemove', function (event) { moveTooltip(event); })
+          .on('mouseleave', hideTooltip);
+      }
+      if (config.enableFilter) {
+        const rangeInfo = findRangeForValue(currentValue);
+        if (rangeInfo) path.on('click', function () { filterByRange(rangeInfo); });
       }
     });
   }
@@ -603,8 +680,18 @@
 
     const g = svg.append('g');
 
-    // ── Colored range segments ──
-    if (config.useGradient) {
+    // Display mode governs how the current value is depicted.
+    const dispMode = config.displayMode || 'needle';
+    const showFill = (dispMode === 'fill' || dispMode === 'needle+fill');
+    const showNeedle = (dispMode === 'needle' || dispMode === 'needle+fill');
+
+    // ── Colored range segments / progress fill ──
+    if (showFill) {
+      // PROGRESS FILL MODE: neutral track spanning the whole scale, overlaid
+      // with a colored fill from Min → Current that inherits band colors.
+      renderLinearTrack(g, marginLeft, barY, barW, barH, barRadius);
+      renderLinearFillSegments(g, marginLeft, barY, barW, barH, barRadius);
+    } else if (config.useGradient) {
       renderLinearGradientBar(svg, g, marginLeft, barY, barW, barH, barRadius);
     } else {
       renderLinearHardSegments(g, marginLeft, barY, barW, barH, barRadius);
@@ -655,39 +742,42 @@
 
     // ── Vertical marker / pointer ──
     const markerX = marginLeft + valueRatio(currentValue) * barW;
-    const markerGroup = g.append('g').attr('class', 'gauge-needle linear-marker');
-
-    markerGroup.append('line')
-      .attr('x1', markerX).attr('y1', barY - 6)
-      .attr('x2', markerX).attr('y2', barY + barH + 6)
-      .attr('stroke', config.needleColor)
-      .attr('stroke-width', 3)
-      .attr('stroke-linecap', 'round');
-
     const triSize = 6;
-    markerGroup.append('polygon')
-      .attr('points', `${markerX},${barY - 2} ${markerX - triSize},${barY - triSize - 4} ${markerX + triSize},${barY - triSize - 4}`)
-      .attr('fill', config.needleColor);
 
-    if (config.enableTooltip) {
-      markerGroup
-        .on('mouseenter', function (event) {
-          const rangeInfo = findRangeForValue(currentValue);
-          showTooltip(event, config.title || 'Value', formatValue(currentValue),
-            rangeInfo ? rangeInfo.label : '');
-        })
-        .on('mousemove', function (event) { moveTooltip(event); })
-        .on('mouseleave', hideTooltip);
-    }
+    if (showNeedle) {
+      const markerGroup = g.append('g').attr('class', 'gauge-needle linear-marker');
 
-    if (animateNeedle && config.animate) {
-      const startX = marginLeft;
-      markerGroup
-        .attr('transform', `translate(${startX - markerX}, 0)`)
-        .transition()
-        .duration(1200)
-        .ease(d3.easeElasticOut.amplitude(1).period(0.6))
-        .attr('transform', 'translate(0, 0)');
+      markerGroup.append('line')
+        .attr('x1', markerX).attr('y1', barY - 6)
+        .attr('x2', markerX).attr('y2', barY + barH + 6)
+        .attr('stroke', config.needleColor)
+        .attr('stroke-width', 3)
+        .attr('stroke-linecap', 'round');
+
+      markerGroup.append('polygon')
+        .attr('points', `${markerX},${barY - 2} ${markerX - triSize},${barY - triSize - 4} ${markerX + triSize},${barY - triSize - 4}`)
+        .attr('fill', config.needleColor);
+
+      if (config.enableTooltip) {
+        markerGroup
+          .on('mouseenter', function (event) {
+            const rangeInfo = findRangeForValue(currentValue);
+            showTooltip(event, config.title || 'Value', formatValue(currentValue),
+              rangeInfo ? rangeInfo.label : '');
+          })
+          .on('mousemove', function (event) { moveTooltip(event); })
+          .on('mouseleave', hideTooltip);
+      }
+
+      if (animateNeedle && config.animate) {
+        const startX = marginLeft;
+        markerGroup
+          .attr('transform', `translate(${startX - markerX}, 0)`)
+          .transition()
+          .duration(1200)
+          .ease(d3.easeElasticOut.amplitude(1).period(0.6))
+          .attr('transform', 'translate(0, 0)');
+      }
     }
 
     // ── Value text above marker ──
@@ -700,6 +790,71 @@
       .attr('font-size', `${config.valueFontSize}px`)
       .style('fill', config.valueColor)
       .text(formatValue(currentValue));
+  }
+
+  // ── Linear Progress Track (neutral background behind the fill) ──
+
+  function renderLinearTrack(g, marginLeft, barY, barW, barH, barRadius) {
+    g.append('rect')
+      .attr('class', 'gauge-track')
+      .attr('x', marginLeft).attr('y', barY)
+      .attr('width', barW).attr('height', barH)
+      .attr('rx', barRadius).attr('ry', barRadius)
+      .attr('fill', config.trackColor || '#e9ecef');
+  }
+
+  // ── Linear Progress Fill (Min → Current, inheriting band colors) ──
+
+  function renderLinearFillSegments(g, marginLeft, barY, barW, barH, barRadius) {
+    if (!R) return;
+    const segments = R.computeFillSegments(resolvedRanges, config.minValue, currentValue, config.maxValue);
+    if (!segments.length) return;
+
+    // Clip the colored segments to a rounded-rect that spans Min → Current so
+    // the leading (and, at 100%, trailing) end of the fill stays nicely rounded.
+    const fillFrom = marginLeft + valueRatio(Math.max(config.minValue, segments[0].from)) * barW;
+    const fillTo = marginLeft + valueRatio(Math.min(config.maxValue, currentValue)) * barW;
+    const fillW = Math.max(0, fillTo - fillFrom);
+    if (fillW <= 0) return;
+
+    const clipId = 'linear-fill-clip-' + Math.random().toString(36).slice(2);
+    const defs = g.append('defs');
+    defs.append('clipPath').attr('id', clipId)
+      .append('rect')
+      .attr('x', fillFrom).attr('y', barY)
+      .attr('width', fillW).attr('height', barH)
+      .attr('rx', barRadius).attr('ry', barRadius);
+
+    const fillG = g.append('g').attr('clip-path', `url(#${clipId})`);
+
+    segments.forEach((seg, idx) => {
+      const x1 = marginLeft + valueRatio(Math.max(seg.from, config.minValue)) * barW;
+      const x2 = marginLeft + valueRatio(Math.min(seg.to, config.maxValue)) * barW;
+      const segW = x2 - x1;
+      if (segW <= 0) return;
+
+      const rect = fillG.append('rect')
+        .attr('class', 'gauge-fill-segment linear-fill-segment')
+        .attr('x', x1).attr('y', barY)
+        .attr('width', segW).attr('height', barH)
+        .attr('fill', seg.color)
+        .attr('data-index', idx);
+
+      if (config.enableTooltip) {
+        rect
+          .on('mouseenter', function (event) {
+            const rangeInfo = findRangeForValue(currentValue);
+            showTooltip(event, config.title || 'Value', formatValue(currentValue),
+              rangeInfo ? rangeInfo.label : (seg.label || ''));
+          })
+          .on('mousemove', function (event) { moveTooltip(event); })
+          .on('mouseleave', hideTooltip);
+      }
+      if (config.enableFilter) {
+        const rangeInfo = findRangeForValue(currentValue);
+        if (rangeInfo) rect.on('click', function () { filterByRange(rangeInfo); });
+      }
+    });
   }
 
   // ── Linear Hard-Stop Segments (default) ──
@@ -977,7 +1132,16 @@
             ? R.migrateRanges(parsed.ranges && parsed.ranges.length ? parsed.ranges : DEFAULT_CONFIG.ranges)
             : (parsed.ranges || DEFAULT_CONFIG.ranges).map(r => ({ ...r })),
         };
-        console.log('[Gauge] Settings loaded:', config.worksheet, config.measure, 'type:', config.gaugeType);
+        // Backward compatibility: dashboards saved before Display Mode existed
+        // must keep the classic needle look (only new configs get needle+fill).
+        if (!Object.prototype.hasOwnProperty.call(parsed, 'displayMode')) {
+          config.displayMode = 'needle';
+        }
+        // Legacy configs used a Goal *field* only. Derive goalMode if absent.
+        if (!Object.prototype.hasOwnProperty.call(parsed, 'goalMode')) {
+          config.goalMode = parsed.goalField ? 'field' : 'none';
+        }
+        console.log('[Gauge] Settings loaded:', config.worksheet, config.measure, 'type:', config.gaugeType, 'display:', config.displayMode);
       } catch (e) {
         console.warn('[Gauge] Failed to parse saved settings:', e);
       }

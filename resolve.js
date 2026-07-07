@@ -133,12 +133,30 @@
   }
 
   // ─── Goal Resolution ───────────────────────────────────────────────
-  // Returns { value (number|null), ok, configured }. The Goal is optional;
-  // when no field is configured, value is null and configured is false.
+  // Returns { value (number|null), ok, configured }. The Goal is optional.
+  // Supported goalMode values:
+  //   'none'  → no goal (value null, configured false)
+  //   'fixed' → manually entered goalValue number
+  //   'field' → aggregation of goalField (default; back-compat when goalMode
+  //             is absent but a goalField is present)
   function resolveGoal(config, dataTable) {
-    if (!config.goalField) {
+    // Back-compat: derive the mode when goalMode is not set.
+    var mode = config.goalMode || (config.goalField ? 'field' : 'none');
+
+    if (mode === 'fixed') {
+      var fv = parseFloat(config.goalValue);
+      if (!isFinite(fv)) {
+        return { value: null, ok: false, configured: true,
+                 reason: 'Goal is set to a fixed value, but the number entered is not valid.' };
+      }
+      return { value: fv, ok: true, configured: true };
+    }
+
+    if (mode === 'none' || !config.goalField) {
       return { value: null, ok: true, configured: false };
     }
+
+    // Field mode
     var idx = colIndex(dataTable, config.goalField);
     if (idx === -1) {
       return { value: null, ok: false, configured: true,
@@ -194,6 +212,82 @@
       defs[i].to = (i < defs.length - 1) ? defs[i + 1].from : maxValue;
     }
     return defs;
+  }
+
+  // ─── Progress Fill Segments ────────────────────────────────────────
+  // Given the resolved ranges (each {from,to,color}) and the current value,
+  // produce the colored segments that make up a progress fill running from
+  // `minValue` up to `currentValue`. Each segment inherits the color of the
+  // threshold band it falls within, so a fill that crosses Red→Yellow→Green
+  // is emitted as three colored pieces clipped at the current value.
+  //
+  // Returns an array of { from, to, color, label } in ascending order. When
+  // the value is at/below min, an empty array is returned.
+  function computeFillSegments(ranges, minValue, currentValue, maxValue) {
+    var min = isFinite(minValue) ? minValue : 0;
+    var max = isFinite(maxValue) ? maxValue : (min + 1);
+    var val = isFinite(currentValue) ? currentValue : min;
+    // Clamp the fill end into [min, max].
+    var fillEnd = Math.max(min, Math.min(val, max));
+    if (fillEnd <= min) return [];
+
+    var segs = [];
+    (ranges || []).forEach(function (r) {
+      if (!isFinite(r.from) || !isFinite(r.to)) return;
+      var segFrom = Math.max(r.from, min);
+      var segTo = Math.min(r.to, fillEnd);
+      if (segTo > segFrom) {
+        segs.push({ from: segFrom, to: segTo, color: r.color || '#4a90d9', label: r.label || '' });
+      }
+    });
+
+    // Fallback: if no ranges cover the fill (e.g. ranges start above min),
+    // emit a single neutral-blue segment so the fill is still visible.
+    if (segs.length === 0 && fillEnd > min) {
+      segs.push({ from: min, to: fillEnd, color: '#4a90d9', label: '' });
+    }
+    return segs;
+  }
+
+  // ─── Resolved Summary Sentence ─────────────────────────────────────
+  // Produces a human-readable one-line summary of the resolved configuration,
+  // e.g. "Current Goal is 100. Max is 150% of Goal (150). Ranges: 0–80 (Low),
+  // 80–100 (Medium), 100–150 (High)."  Uses the resolved values so it reflects
+  // the current worksheet data.
+  function buildSummarySentence(config, dataTable) {
+    var v = validateResolved(config, dataTable);
+    var res = v.resolved;
+    var parts = [];
+
+    // Goal
+    if (res.goalConfigured) {
+      if (res.goal === null || !isFinite(res.goal)) {
+        parts.push('Goal is not resolvable yet.');
+      } else {
+        parts.push('Current Goal is ' + fmt(res.goal) + '.');
+      }
+    }
+
+    // Max
+    var maxDesc = describeMax(config);
+    if (maxDesc === 'fixed') {
+      parts.push('Max is ' + fmt(res.max) + '.');
+    } else {
+      parts.push('Max is ' + maxDesc + ' (' + fmt(res.max) + ').');
+    }
+
+    // Ranges
+    if (res.ranges && res.ranges.length) {
+      var rangeTxt = res.ranges.map(function (r, i) {
+        var name = r.label || ('R' + (i + 1));
+        var from = isFinite(r.from) ? fmt(r.from) : '?';
+        var to = isFinite(r.to) ? fmt(r.to) : '?';
+        return from + '\u2013' + to + ' (' + name + ')';
+      }).join(', ');
+      parts.push('Ranges: ' + rangeTxt + '.');
+    }
+
+    return parts.join(' ');
   }
 
   // ─── Validation ────────────────────────────────────────────────────
@@ -348,6 +442,8 @@
     resolveGoal: resolveGoal,
     resolveRangeStart: resolveRangeStart,
     resolveRanges: resolveRanges,
+    computeFillSegments: computeFillSegments,
+    buildSummarySentence: buildSummarySentence,
     validateResolved: validateResolved,
     describeRangeStart: describeRangeStart,
     describeMax: describeMax,

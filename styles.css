@@ -658,6 +658,19 @@ html, body {
 .range-item-v2 .range-resolved strong { color: var(--color-text); font-weight: 600; }
 .range-item-v2 .range-resolved .rr-detail { color: var(--color-primary, #4a90d9); font-style: italic; }
 
+/* --- Plain-language summary sentence --- */
+.vp-summary {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--color-input-bg, #f8f9fa);
+  border-left: 3px solid var(--color-primary, #4a90d9);
+  border-radius: var(--radius, 4px);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text, #333);
+}
+.vp-summary:empty { display: none; }
+
 /* --- Validation Preview --- */
 .validation-preview {
   background: var(--color-input-bg);
