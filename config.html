@@ -149,18 +149,36 @@
       <!-- TAB: Ranges & Colors -->
       <div id="tab-ranges" class="config-tab-content">
 
-        <!-- ───────── Goal Field (shared reference) ───────── -->
+        <!-- ───────── Goal Reference (shared) ───────── -->
         <div class="config-section">
-          <div class="section-title">🎯 Goal Field</div>
+          <div class="section-title">🎯 Goal Reference</div>
           <p class="section-desc">
-            A single shared reference value computed from a worksheet field. It can be
-            used as a range start boundary (see “% of Goal” and “Goal Field Value” below)
-            and is validated against the Max value.
+            A single shared reference value — the <strong>anchor</strong> for relative
+            calculations. It can be a fixed number or computed from a worksheet field, and
+            is used by “% of Goal”, “Goal Value” range boundaries and the “Relative to Goal”
+            Max mode. It does <em>not</em> replace the primary metric.
           </p>
-          <div class="form-row">
+
+          <div class="form-group">
+            <label>Goal Source</label>
+            <select id="cfg-goal-mode">
+              <option value="none">— None —</option>
+              <option value="fixed">Fixed Value</option>
+              <option value="field">Field from Worksheet</option>
+            </select>
+          </div>
+
+          <!-- Goal: Fixed value input -->
+          <div class="form-group" id="goal-fixed-group" style="display:none;">
+            <label>Goal Value</label>
+            <input type="number" step="any" id="cfg-goal-value" value="0" />
+          </div>
+
+          <!-- Goal: Field + aggregation -->
+          <div class="form-row" id="goal-field-group" style="display:none;">
             <div class="form-group">
               <label>Goal Field</label>
-              <select id="cfg-goal-field"><option value="">— None —</option></select>
+              <select id="cfg-goal-field"><option value="">— Select field —</option></select>
             </div>
             <div class="form-group">
               <label>Goal Aggregation</label>
@@ -223,22 +241,55 @@
               <div class="vp-val" id="vp-ranges">—</div>
             </div>
           </div>
+          <div class="vp-summary" id="vp-summary"></div>
           <div class="validation-warnings" id="validation-warnings" style="display:none;"></div>
         </div>
       </div>
 
       <!-- TAB: Visual -->
       <div id="tab-visual" class="config-tab-content">
-        <!-- Gauge Type Selector -->
-        <div class="form-group">
-          <label>Gauge Type</label>
-          <select id="cfg-gauge-type">
-            <option value="semi">Semi-Circular (180°)</option>
-            <option value="three-quarter">Three-Quarter Circle (270°)</option>
-            <option value="linear">Linear Horizontal</option>
-          </select>
-          <div class="form-hint" id="gauge-type-hint">
-            <strong>Semi-Circular:</strong> Classic 180° half-circle gauge with needle pointer.
+
+        <!-- ───────── Layout & Display ───────── -->
+        <div class="config-section">
+          <div class="section-title">📐 Layout &amp; Display</div>
+          <p class="section-desc">
+            Choose the gauge <strong>Shape</strong> and how the current value is
+            <strong>displayed</strong>. Display Mode works with every shape.
+          </p>
+
+          <!-- Shape (Gauge Type) Selector -->
+          <div class="form-group">
+            <label>Shape</label>
+            <select id="cfg-gauge-type">
+              <option value="semi">Arc — Semi-Circular (180°)</option>
+              <option value="three-quarter">Arc — Three-Quarter (270°)</option>
+              <option value="linear">Linear Horizontal</option>
+            </select>
+            <div class="form-hint" id="gauge-type-hint">
+              <strong>Semi-Circular:</strong> Classic 180° half-circle gauge.
+            </div>
+          </div>
+
+          <!-- Display Mode Selector -->
+          <div class="form-group">
+            <label>Display Mode</label>
+            <select id="cfg-display-mode">
+              <option value="needle">Needle</option>
+              <option value="fill">Progress Fill</option>
+              <option value="needle+fill">Needle + Fill (Recommended)</option>
+            </select>
+            <div class="form-hint" id="display-mode-hint">
+              <strong>Needle:</strong> Classic pointer over colored threshold bands.
+            </div>
+          </div>
+
+          <!-- Track color (used behind the progress fill) -->
+          <div class="form-group" id="track-color-group" style="display:none;">
+            <label>Fill Track Color</label>
+            <input type="color" id="cfg-track-color" value="#e9ecef" />
+            <div class="form-hint">
+              The neutral background track shown behind the progress fill.
+            </div>
           </div>
         </div>
 

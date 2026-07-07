@@ -31,7 +31,10 @@
     // Multiplier used when maxMode === 'relativeGoal' (Max = Goal × multiplier).
     // Stored as a number; the input also accepts "150%" which parses to 1.5.
     maxMultiplier: 1.5,
-    // Shared Goal reference field (optional)
+    // Shared Goal reference (optional). goalMode: 'none' | 'fixed' | 'field'
+    //   'fixed' uses goalValue; 'field' computes from goalField + goalAggregation.
+    goalMode: 'field',
+    goalValue: 0,
     goalField: '',
     goalAggregation: 'SUM',
     title: 'Gauge',
@@ -61,6 +64,13 @@
     useGradient: false,
     percentageMode: 'off',
     percentDecimals: 0,
+    // Display mode for how the current value is shown:
+    //   'needle'      — classic needle/marker (legacy default)
+    //   'fill'        — progress fill from Min → Current Value (inherits band colors)
+    //   'needle+fill' — both (recommended for new configs)
+    displayMode: 'needle+fill',
+    // Neutral background track color shown behind the progress fill.
+    trackColor: '#e9ecef',
   };
 
   let config = cloneConfig(DEFAULT_CONFIG);
@@ -68,6 +78,12 @@
   // Cached summary data table for the currently selected worksheet — used to
   // resolve field-based Max/Goal aggregations in the live validation preview.
   let currentDataTable = null;
+
+  // True while populateConfigForm is writing config values INTO the form.
+  // Guards readConfigFromForm so the live preview (triggered mid-populate by
+  // populateMeasures) can't read half-populated form controls and clobber
+  // config values that haven't been written to the DOM yet (e.g. displayMode).
+  let isPopulating = false;
 
   function cloneConfig(c) {
     return { ...c, ranges: (c.ranges || []).map(r => ({ ...r })) };
@@ -99,6 +115,17 @@
           // Migrate any legacy {from,to} ranges to the v2 model.
           ranges: R.migrateRanges(parsed.ranges && parsed.ranges.length ? parsed.ranges : DEFAULT_CONFIG.ranges),
         };
+        // Backward compatibility: existing dashboards saved before Display Mode
+        // existed must keep the classic needle look. Only brand-new configs get
+        // the 'needle+fill' default.
+        if (!Object.prototype.hasOwnProperty.call(parsed, 'displayMode')) {
+          config.displayMode = 'needle';
+        }
+        // Legacy configs used a Goal *field* only. If goalMode wasn't saved,
+        // derive it: field if a goalField exists, otherwise none.
+        if (!Object.prototype.hasOwnProperty.call(parsed, 'goalMode')) {
+          config.goalMode = parsed.goalField ? 'field' : 'none';
+        }
         console.log('[Config] Loaded settings:', config.worksheet, config.measure);
       } catch (e) {
         console.warn('[Config] Could not parse saved settings:', e);
@@ -116,6 +143,7 @@
   // ─── Populate Form ─────────────────────────────────────────────────
 
   async function populateConfigForm() {
+    isPopulating = true;
     const wsSelect = document.getElementById('cfg-worksheet');
     wsSelect.innerHTML = '<option value="">— Select worksheet —</option>';
 
@@ -142,8 +170,12 @@
       (config.maxMultiplier === undefined || config.maxMultiplier === null) ? 1.5 : config.maxMultiplier;
     updateMaxModeVisibility();
 
-    // Goal field
+    // Goal reference
+    document.getElementById('cfg-goal-mode').value = config.goalMode || 'none';
+    document.getElementById('cfg-goal-value').value =
+      (config.goalValue === undefined || config.goalValue === null) ? 0 : config.goalValue;
     document.getElementById('cfg-goal-aggregation').value = config.goalAggregation || 'SUM';
+    updateGoalModeVisibility();
 
     document.getElementById('cfg-title').value = config.title;
     document.getElementById('cfg-subtitle').value = config.subtitle;
@@ -170,6 +202,10 @@
     document.getElementById('cfg-gauge-type').value = config.gaugeType || 'semi';
     updateGaugeTypeHint();
 
+    document.getElementById('cfg-display-mode').value = config.displayMode || 'needle';
+    document.getElementById('cfg-track-color').value = config.trackColor || '#e9ecef';
+    updateDisplayModeVisibility();
+
     document.getElementById('cfg-use-gradient').checked = config.useGradient || false;
 
     document.getElementById('cfg-percentage-mode').value = config.percentageMode || 'off';
@@ -178,6 +214,7 @@
     updatePctDecimalsVisibility();
 
     renderRangeList();
+    isPopulating = false;
     updateValidationPreview();
   }
 
@@ -290,6 +327,9 @@
   // ─── Read Config from Form ─────────────────────────────────────────
 
   function readConfigFromForm(includeRanges) {
+    // While the form is being populated FROM config, do not read back the
+    // (possibly still-default) DOM controls — that would clobber config.
+    if (isPopulating) return;
     if (includeRanges === undefined) includeRanges = true;
     config.worksheet = document.getElementById('cfg-worksheet').value;
     config.measure = document.getElementById('cfg-measure').value;
@@ -305,6 +345,8 @@
       const parsedMult = R.parseMultiplier(document.getElementById('cfg-max-multiplier').value);
       config.maxMultiplier = isFinite(parsedMult) ? parsedMult : 1.5;
     }
+    config.goalMode = document.getElementById('cfg-goal-mode').value || 'none';
+    config.goalValue = parseFloat(document.getElementById('cfg-goal-value').value) || 0;
     config.goalField = document.getElementById('cfg-goal-field').value;
     config.goalAggregation = document.getElementById('cfg-goal-aggregation').value || 'SUM';
     config.title = document.getElementById('cfg-title').value;
@@ -326,6 +368,8 @@
     config.enableTooltip = document.getElementById('cfg-enable-tooltip').checked;
     config.animate = document.getElementById('cfg-animate').checked;
     config.gaugeType = document.getElementById('cfg-gauge-type').value || 'semi';
+    config.displayMode = document.getElementById('cfg-display-mode').value || 'needle';
+    config.trackColor = document.getElementById('cfg-track-color').value || '#e9ecef';
     config.useGradient = document.getElementById('cfg-use-gradient').checked;
     config.percentageMode = document.getElementById('cfg-percentage-mode').value || 'off';
     config.percentDecimals = parseInt(document.getElementById('cfg-percent-decimals').value, 10) || 0;
@@ -406,6 +450,32 @@
     hint.innerHTML = hints[type] || '';
   }
 
+  // ─── Display Mode Helper ────────────────────────────────────────────
+
+  function updateDisplayModeVisibility() {
+    const mode = document.getElementById('cfg-display-mode').value || 'needle';
+    const showsFill = (mode === 'fill' || mode === 'needle+fill');
+    // The neutral background track only matters when a progress fill is drawn.
+    document.getElementById('track-color-group').style.display = showsFill ? 'block' : 'none';
+    const hint = document.getElementById('display-mode-hint');
+    if (hint) {
+      const hints = {
+        'needle':      '<strong>Needle:</strong> Classic pointer (or marker on Linear). The original look.',
+        'fill':        '<strong>Progress Fill:</strong> Fills from Min to the current value, inheriting the colors of the threshold bands it passes through.',
+        'needle+fill': '<strong>Needle + Fill (Recommended):</strong> Shows the colored progress fill and a needle/marker at the current value.',
+      };
+      hint.innerHTML = hints[mode] || '';
+    }
+  }
+
+  // ─── Goal Reference Helper ──────────────────────────────────────────
+
+  function updateGoalModeVisibility() {
+    const mode = document.getElementById('cfg-goal-mode').value || 'none';
+    document.getElementById('goal-fixed-group').style.display = (mode === 'fixed') ? 'block' : 'none';
+    document.getElementById('goal-field-group').style.display = (mode === 'field') ? 'block' : 'none';
+  }
+
   // ─── Live Validation Preview ───────────────────────────────────────
 
   function updateValidationPreview() {
@@ -432,8 +502,11 @@
     } else if (res.goal === null || !isFinite(res.goal)) {
       document.getElementById('vp-goal').textContent = '⚠ unresolved';
     } else {
+      const goalDetail = (config.goalMode === 'fixed')
+        ? 'fixed'
+        : ((config.goalAggregation || 'SUM') + ' of ' + config.goalField);
       document.getElementById('vp-goal').textContent =
-        R.fmt(res.goal) + '  (' + (config.goalAggregation || 'SUM') + ' of ' + config.goalField + ')';
+        R.fmt(res.goal) + '  (' + goalDetail + ')';
     }
 
     // Range starts as colored chips
@@ -488,6 +561,17 @@
       }
     }
 
+    // Plain-language summary sentence, e.g.
+    // "Current Goal is $100. Max is 150% of Goal ($150). Ranges: 0–80 (Red), …"
+    const summaryEl = document.getElementById('vp-summary');
+    if (summaryEl) {
+      try {
+        summaryEl.textContent = R.buildSummarySentence(config, currentDataTable);
+      } catch (e) {
+        summaryEl.textContent = '';
+      }
+    }
+
     return result;
   }
 
@@ -521,6 +605,18 @@
     // Gauge type change
     document.getElementById('cfg-gauge-type').addEventListener('change', updateGaugeTypeHint);
 
+    // Display mode change → toggle track color + refresh hint/preview
+    document.getElementById('cfg-display-mode').addEventListener('change', function () {
+      updateDisplayModeVisibility();
+      updateValidationPreview();
+    });
+
+    // Goal source change → toggle fixed/field inputs + refresh preview
+    document.getElementById('cfg-goal-mode').addEventListener('change', function () {
+      updateGoalModeVisibility();
+      updateValidationPreview();
+    });
+
     // Max value source change → toggle inputs + refresh preview
     document.getElementById('cfg-max-mode').addEventListener('change', function () {
       updateMaxModeVisibility();
@@ -529,7 +625,7 @@
 
     // Inputs that affect resolved Max / Goal / ranges → live preview
     ['cfg-min', 'cfg-max', 'cfg-max-field', 'cfg-max-aggregation', 'cfg-max-multiplier',
-     'cfg-goal-field', 'cfg-goal-aggregation'].forEach(id => {
+     'cfg-goal-value', 'cfg-goal-field', 'cfg-goal-aggregation', 'cfg-track-color'].forEach(id => {
       const el = document.getElementById(id);
       if (el) {
         el.addEventListener('change', updateValidationPreview);
