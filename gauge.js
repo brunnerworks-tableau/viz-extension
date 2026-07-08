@@ -1065,11 +1065,6 @@
         const maxR = R.resolveMax(config, dataTable);
         if (maxR.ok) {
           config.maxValue = maxR.value;
-          if (config.maxMode === 'relativeGoal') {
-            console.log('[Gauge] Dynamic max (relative to Goal):', maxR.goal, '×', maxR.multiplier, '=', maxR.value);
-          } else {
-            console.log('[Gauge] Dynamic max computed:', config.maxAggregation, 'of', config.maxField, '=', maxR.value);
-          }
         } else if (maxR.reason) {
           console.warn('[Gauge] ' + maxR.reason + ' Using fixed Max Value.');
         }
@@ -1080,13 +1075,6 @@
       // mode (fixed / % of Max / % of Goal / Goal Field Value) into concrete
       // {from,to} values that drive the rendering below.
       resolveDerivedState(dataTable);
-
-      if (config.percentageMode === 'auto') {
-        const allInZeroOne = values.every(v => v >= 0 && v <= 1);
-        if (allInZeroOne) {
-          console.log('[Gauge] Auto-detect: data appears to be 0-1 percentage range.');
-        }
-      }
 
       hideError();
       hideLoading();
@@ -1141,35 +1129,29 @@
         if (!Object.prototype.hasOwnProperty.call(parsed, 'goalMode')) {
           config.goalMode = parsed.goalField ? 'field' : 'none';
         }
-        console.log('[Gauge] Settings loaded:', config.worksheet, config.measure, 'type:', config.gaugeType, 'display:', config.displayMode);
       } catch (e) {
         console.warn('[Gauge] Failed to parse saved settings:', e);
       }
-    } else {
-      console.log('[Gauge] No saved settings found — using defaults.');
     }
   }
 
   // ─── Configuration Dialog ─────────────────────────────────────────
 
   function openConfigureDialog() {
-    console.log('[Gauge] Configure callback triggered — opening popup dialog...');
     const baseUrl = window.location.href.replace(/\/[^/]*$/, '/');
     const popupUrl = baseUrl + 'config.html';
 
     tableau.extensions.ui.displayDialogAsync(
       popupUrl, '', { height: 600, width: 580 }
     ).then(function (closePayload) {
-      console.log('[Gauge] Config dialog closed. Payload:', closePayload);
       loadSettings();
       showLoading();
       fetchDataAndRender(true).then(function () {
         listenForDataChanges();
       });
     }).catch(function (error) {
-      if (error.errorCode === tableau.ErrorCodes.DialogClosedByUser) {
-        console.log('[Gauge] Config dialog closed by user (X button).');
-      } else {
+      // DialogClosedByUser is expected (user hit X) — ignore it; log the rest.
+      if (error.errorCode !== tableau.ErrorCodes.DialogClosedByUser) {
         console.error('[Gauge] Error displaying config dialog:', error);
       }
     });
@@ -1237,19 +1219,15 @@
       }).catch(() => { /* parameters unavailable — non-fatal */ });
     }
 
-    console.log('[Gauge] Data change listeners registered across',
-      (dashboard.worksheets || []).length, 'worksheet(s).');
   }
 
   // ─── Initialization ───────────────────────────────────────────────
 
   async function initExtension() {
     showLoading();
-    console.log('[Gauge] Initializing extension...');
 
     try {
       await tableau.extensions.initializeAsync({ configure: openConfigureDialog });
-      console.log('[Gauge] Extension initialized successfully.');
       loadSettings();
 
       if (config.worksheet && config.measure) {
@@ -1294,7 +1272,6 @@
       fallbackToDemo();
       return;
     }
-    console.log('[Gauge] ✅ Tableau Extensions API detected.');
     initExtension();
   }
 
@@ -1324,7 +1301,6 @@
     // Resolve ranges (no data table → goal null) before rendering.
     resolveDerivedState(null);
     renderGauge(true);
-    console.info('[Gauge] Rendering standalone demo gauge (Tableau API not available).');
   }
 
   checkApiAndBoot();

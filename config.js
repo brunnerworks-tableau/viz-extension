@@ -91,10 +91,7 @@
 
   // ─── Initialize Dialog ─────────────────────────────────────────────
 
-  console.log('[Config] Dialog script loaded. Initializing...');
-
   tableau.extensions.initializeDialogAsync().then(function (openPayload) {
-    console.log('[Config] Dialog initialized. Payload:', openPayload);
     loadSettings();
     populateConfigForm();
     wireEvents();
@@ -126,12 +123,9 @@
         if (!Object.prototype.hasOwnProperty.call(parsed, 'goalMode')) {
           config.goalMode = parsed.goalField ? 'field' : 'none';
         }
-        console.log('[Config] Loaded settings:', config.worksheet, config.measure);
       } catch (e) {
         console.warn('[Config] Could not parse saved settings:', e);
       }
-    } else {
-      console.log('[Config] No existing settings — using defaults.');
     }
   }
 
@@ -148,7 +142,6 @@
     wsSelect.innerHTML = '<option value="">— Select worksheet —</option>';
 
     const dashboard = tableau.extensions.dashboardContent.dashboard;
-    console.log('[Config] Dashboard worksheets:', dashboard.worksheets.map(w => w.name));
 
     dashboard.worksheets.forEach(ws => {
       const opt = document.createElement('option');
@@ -240,7 +233,6 @@
 
       const dataTable = await ws.getSummaryDataAsync();
       currentDataTable = dataTable; // cache for live validation/preview
-      console.log('[Config] Columns for', wsName + ':', dataTable.columns.map(c => c.fieldName));
 
       dataTable.columns.forEach(col => {
         measureSelect.appendChild(makeOption(col.fieldName, config.measure));
@@ -731,7 +723,6 @@
 
     // ─── SAVE ─────────────────────────────────────────────────────
     document.getElementById('config-save-btn').addEventListener('click', async function () {
-      console.log('[Config] Save button clicked.');
       readConfigFromForm();
 
       // Final pre-apply validation. Warnings do not hard-block saving (the user
@@ -748,10 +739,8 @@
         if (!proceed) return;
       }
 
-      console.log('[Config] Config to save:', JSON.stringify(config));
       try {
         await saveSettings();
-        console.log('[Config] Settings saved. Closing dialog...');
         tableau.extensions.ui.closeDialog('saved');
       } catch (err) {
         console.error('[Config] Error saving settings:', err);
@@ -761,7 +750,6 @@
 
     // ─── CANCEL ───────────────────────────────────────────────────
     document.getElementById('config-cancel-btn').addEventListener('click', function () {
-      console.log('[Config] Cancel clicked. Closing dialog...');
       tableau.extensions.ui.closeDialog('cancelled');
     });
   }
