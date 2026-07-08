@@ -27,12 +27,26 @@
     aggregation: 'SUM',
     minValue: 0,
     maxValue: 100,
+    // Max value source: 'fixed' uses maxValue, 'field' computes from maxField + maxAggregation,
+    // 'relativeGoal' computes Goal × maxMultiplier.
+    maxMode: 'fixed',
+    maxField: '',
+    maxAggregation: 'MAX',
+    maxMultiplier: 1.5,
+    // Shared Goal reference (optional). goalMode: 'none' | 'fixed' | 'field'
+    //   'fixed' uses goalValue; 'field' is resolved like the Value Field.
+    goalMode: 'field',
+    goalValue: 0,
+    goalField: '',
+    goalAggregation: 'SUM',
     title: 'Gauge',
     subtitle: '',
+    // Ranges use the v2 model: { label, color, startMode, startValue }
+    //   startMode: 'fixed' | 'pctMax' | 'pctGoal' | 'goal'
     ranges: [
-      { from: 0, to: 33, color: '#dc3545', label: 'Low' },
-      { from: 33, to: 66, color: '#ffc107', label: 'Medium' },
-      { from: 66, to: 100, color: '#28a745', label: 'High' },
+      { label: 'Low',    color: '#dc3545', startMode: 'fixed', startValue: 0 },
+      { label: 'Medium', color: '#ffc107', startMode: 'fixed', startValue: 33 },
+      { label: 'High',   color: '#28a745', startMode: 'fixed', startValue: 66 },
     ],
     needleColor: '#a3a3a3',
     backgroundColor: 'transparent',
@@ -55,17 +69,94 @@
     // Percentage mode: 'off' | 'auto' | 'pct0to1' | 'pct0to100'
     percentageMode: 'off',
     percentDecimals: 0,
+    // Display mode: 'needle' | 'fill' | 'needle+fill'
+    //   'needle'      — classic needle/marker (legacy default)
+    //   'fill'        — progress fill Min→Current, inheriting band colors
+    //   'needle+fill' — both (recommended for new configs)
+    displayMode: 'needle+fill',
+    // Neutral background track shown behind the progress fill.
+    trackColor: '#e9ecef',
   };
+
+  const R = window.GaugeResolve; // shared resolution/validation helpers
 
   let config = cloneConfig(DEFAULT_CONFIG);
   let currentValue = 0;
   let worksheetObj = null;
   let eventUnregisterHandlers = [];
 
+  // Resolved (render-ready) state, recomputed on every data refresh.
+  //   goalValue       — the resolved shared Goal value (number|null)
+  //   resolvedRanges  — concrete [{from,to,color,label}] ranges in user order
+  let goalValue = null;
+  let resolvedRanges = [];
+
+  /**
+   * Resolve the Goal value and the concrete render-ready ranges from the
+   * current config and a Tableau summary data table. Uses the SAME aggregation
+   * pattern as the Value Field (see aggregateColumn). Falls back gracefully
+   * (goal = null, ranges resolved against Max) when data is unavailable.
+   */
+  function resolveDerivedState(dataTable) {
+    // Goal
+    if (R && dataTable) {
+      const g = R.resolveGoal(config, dataTable);
+      goalValue = g.ok ? g.value : null;
+      if (!g.ok && g.reason) console.warn('[Gauge] ' + g.reason);
+    } else {
+      goalValue = null;
+    }
+    // Ranges (each ends where the next starts; last ends at Max)
+    if (R) {
+      resolvedRanges = R.resolveRanges(config.ranges, config.minValue, config.maxValue, goalValue)
+        // Drop ranges whose start could not be resolved (e.g. goal-based with no goal).
+        .filter(r => isFinite(r.from));
+      // Guard: ensure `to` never NaN.
+      resolvedRanges.forEach(r => { if (!isFinite(r.to)) r.to = config.maxValue; });
+    } else {
+      resolvedRanges = (config.ranges || []).map(r => ({ ...r }));
+    }
+  }
+
   // ─── Helpers ───────────────────────────────────────────────────────
 
   function cloneConfig(c) {
     return { ...c, ranges: (c.ranges || []).map(r => ({ ...r })) };
+  }
+
+  /**
+   * Aggregate a single column of a Tableau summary data table.
+   * Supports SUM, AVG, MIN, MAX, FIRST and COUNT. Returns null when there is
+   * no usable data (so callers can fall back to a default).
+   *
+   * COUNT counts non-empty rows in the column (works for dimensions too);
+   * all other aggregations operate on the numeric values only.
+   */
+  function aggregateColumn(dataTable, colIdx, agg) {
+    if (colIdx < 0) return null;
+
+    if (agg === 'COUNT') {
+      return dataTable.data.filter(row => {
+        const cell = row[colIdx];
+        if (!cell) return false;
+        const v = cell.value;
+        return v !== null && v !== undefined && v !== '' && v !== '%null%';
+      }).length;
+    }
+
+    const values = dataTable.data
+      .map(row => parseFloat(row[colIdx].value))
+      .filter(v => !isNaN(v));
+    if (values.length === 0) return null;
+
+    switch (agg) {
+      case 'SUM':   return d3.sum(values);
+      case 'AVG':   return d3.mean(values);
+      case 'MIN':   return d3.min(values);
+      case 'MAX':   return d3.max(values);
+      case 'FIRST': return values[0];
+      default:      return d3.sum(values);
+    }
   }
 
   function getEffectivePercentMode() {
@@ -155,7 +246,7 @@
    *   0% → red, 30.5% → red, 35.5% → yellow, 63.5% → yellow, 68.5% → green, 100% → green
    */
   function buildGradientStops() {
-    const ranges = config.ranges;
+    const ranges = resolvedRanges;
     if (!ranges || ranges.length === 0) return [];
 
     const stops = [];
@@ -281,8 +372,19 @@
 
     const g = svg.append('g').attr('transform', `translate(${cx},${cy})`);
 
-    // ── Colored range arcs ──
-    if (config.useGradient) {
+    // Display mode governs how the current value is depicted.
+    const dispMode = config.displayMode || 'needle';
+    const showFill = (dispMode === 'fill' || dispMode === 'needle+fill');
+    const showNeedle = (dispMode === 'needle' || dispMode === 'needle+fill');
+
+    // ── Colored range arcs / progress fill ──
+    if (showFill) {
+      // PROGRESS FILL MODE: a neutral background track spanning the whole scale,
+      // overlaid with a colored fill from Min → Current Value that inherits the
+      // colors of the threshold bands it passes through.
+      renderCircularTrack(g, innerRadius, radius);
+      renderCircularFillSegments(g, innerRadius, radius);
+    } else if (config.useGradient) {
       // GRADIENT MODE: render many thin arc slices with interpolated colors
       renderCircularGradientArcs(g, innerRadius, radius, angles);
     } else {
@@ -342,7 +444,7 @@
 
     // ── Range labels on arc ──
     if (config.showRangeLabels) {
-      config.ranges.forEach(range => {
+      resolvedRanges.forEach(range => {
         const midVal = (Math.max(range.from, config.minValue) + Math.min(range.to, config.maxValue)) / 2;
         const angle = valueToAngle(midVal);
         const labelR = (innerRadius + radius) / 2;
@@ -361,40 +463,42 @@
     }
 
     // ── Needle / Pointer ──
-    const needleLen = radius * 0.92;
-    const needleAngle = valueToAngle(currentValue);
-    const needleGroup = g.append('g').attr('class', 'gauge-needle');
+    if (showNeedle) {
+      const needleLen = radius * 0.92;
+      const needleAngle = valueToAngle(currentValue);
+      const needleGroup = g.append('g').attr('class', 'gauge-needle');
 
-    if (config.enableTooltip) {
-      needleGroup
-        .on('mouseenter', function (event) {
-          const rangeInfo = findRangeForValue(currentValue);
-          showTooltip(event, config.title || 'Value', formatValue(currentValue),
-            rangeInfo ? rangeInfo.label : '');
-        })
-        .on('mousemove', function (event) { moveTooltip(event); })
-        .on('mouseleave', hideTooltip);
-    }
+      if (config.enableTooltip) {
+        needleGroup
+          .on('mouseenter', function (event) {
+            const rangeInfo = findRangeForValue(currentValue);
+            showTooltip(event, config.title || 'Value', formatValue(currentValue),
+              rangeInfo ? rangeInfo.label : '');
+          })
+          .on('mousemove', function (event) { moveTooltip(event); })
+          .on('mouseleave', hideTooltip);
+      }
 
-    const nw = 4;
-    needleGroup.append('polygon')
-      .attr('points', `0,${-needleLen} ${-nw},0 ${nw},0`)
-      .attr('fill', config.needleColor);
-    needleGroup.append('circle')
-      .attr('r', 7)
-      .attr('fill', config.needleColor);
+      const nw = 4;
+      needleGroup.append('polygon')
+        .attr('points', `0,${-needleLen} ${-nw},0 ${nw},0`)
+        .attr('fill', config.needleColor);
+      needleGroup.append('circle')
+        .attr('r', 7)
+        .attr('fill', config.needleColor);
 
-    if (animateNeedle && config.animate) {
-      const startAngleDeg = (valueToAngle(config.minValue) * 180) / Math.PI;
-      const endAngleDeg   = (needleAngle * 180) / Math.PI;
-      needleGroup
-        .attr('transform', `rotate(${startAngleDeg})`)
-        .transition()
-        .duration(1200)
-        .ease(d3.easeElasticOut.amplitude(1).period(0.6))
-        .attr('transform', `rotate(${endAngleDeg})`);
-    } else {
-      needleGroup.attr('transform', `rotate(${(needleAngle * 180) / Math.PI})`);
+      if (animateNeedle && config.animate) {
+        const startAngleDeg = (valueToAngle(config.minValue) * 180) / Math.PI;
+        const endAngleDeg   = (needleAngle * 180) / Math.PI;
+        needleGroup
+          .attr('transform', `rotate(${startAngleDeg})`)
+          .transition()
+          .duration(1200)
+          .ease(d3.easeElasticOut.amplitude(1).period(0.6))
+          .attr('transform', `rotate(${endAngleDeg})`);
+      } else {
+        needleGroup.attr('transform', `rotate(${(needleAngle * 180) / Math.PI})`);
+      }
     }
 
     // ── Center value text ──
@@ -421,7 +525,7 @@
       .outerRadius(radius)
       .cornerRadius(2);
 
-    config.ranges.forEach((range, idx) => {
+    resolvedRanges.forEach((range, idx) => {
       const startAngle = valueToAngle(Math.max(range.from, config.minValue));
       const endAngle = valueToAngle(Math.min(range.to, config.maxValue));
       if (endAngle <= startAngle) return;
@@ -443,6 +547,60 @@
       }
       if (config.enableFilter) {
         segment.on('click', function () { filterByRange(range); });
+      }
+    });
+  }
+
+  // ── Circular Progress Track (neutral background behind the fill) ──
+
+  function renderCircularTrack(g, innerRadius, radius) {
+    const arcGen = d3.arc()
+      .innerRadius(innerRadius)
+      .outerRadius(radius)
+      .cornerRadius(2);
+    const startAngle = valueToAngle(config.minValue);
+    const endAngle = valueToAngle(config.maxValue);
+    if (endAngle <= startAngle) return;
+    g.append('path')
+      .attr('class', 'gauge-track')
+      .attr('d', arcGen({ startAngle, endAngle }))
+      .attr('fill', config.trackColor || '#e9ecef');
+  }
+
+  // ── Circular Progress Fill (Min → Current, inheriting band colors) ──
+
+  function renderCircularFillSegments(g, innerRadius, radius) {
+    if (!R) return;
+    const segments = R.computeFillSegments(resolvedRanges, config.minValue, currentValue, config.maxValue);
+    const arcGen = d3.arc()
+      .innerRadius(innerRadius)
+      .outerRadius(radius)
+      .cornerRadius(2);
+
+    segments.forEach((seg, idx) => {
+      const startAngle = valueToAngle(Math.max(seg.from, config.minValue));
+      const endAngle = valueToAngle(Math.min(seg.to, config.maxValue));
+      if (endAngle <= startAngle) return;
+
+      const path = g.append('path')
+        .attr('class', 'gauge-fill-segment')
+        .attr('d', arcGen({ startAngle, endAngle }))
+        .attr('fill', seg.color)
+        .attr('data-index', idx);
+
+      if (config.enableTooltip) {
+        path
+          .on('mouseenter', function (event) {
+            const rangeInfo = findRangeForValue(currentValue);
+            showTooltip(event, config.title || 'Value', formatValue(currentValue),
+              rangeInfo ? rangeInfo.label : (seg.label || ''));
+          })
+          .on('mousemove', function (event) { moveTooltip(event); })
+          .on('mouseleave', hideTooltip);
+      }
+      if (config.enableFilter) {
+        const rangeInfo = findRangeForValue(currentValue);
+        if (rangeInfo) path.on('click', function () { filterByRange(rangeInfo); });
       }
     });
   }
@@ -522,8 +680,18 @@
 
     const g = svg.append('g');
 
-    // ── Colored range segments ──
-    if (config.useGradient) {
+    // Display mode governs how the current value is depicted.
+    const dispMode = config.displayMode || 'needle';
+    const showFill = (dispMode === 'fill' || dispMode === 'needle+fill');
+    const showNeedle = (dispMode === 'needle' || dispMode === 'needle+fill');
+
+    // ── Colored range segments / progress fill ──
+    if (showFill) {
+      // PROGRESS FILL MODE: neutral track spanning the whole scale, overlaid
+      // with a colored fill from Min → Current that inherits band colors.
+      renderLinearTrack(g, marginLeft, barY, barW, barH, barRadius);
+      renderLinearFillSegments(g, marginLeft, barY, barW, barH, barRadius);
+    } else if (config.useGradient) {
       renderLinearGradientBar(svg, g, marginLeft, barY, barW, barH, barRadius);
     } else {
       renderLinearHardSegments(g, marginLeft, barY, barW, barH, barRadius);
@@ -531,7 +699,7 @@
 
     // ── Range labels below bar ──
     if (config.showRangeLabels) {
-      config.ranges.forEach(range => {
+      resolvedRanges.forEach(range => {
         const rFrom = Math.max(range.from, config.minValue);
         const rTo   = Math.min(range.to, config.maxValue);
         if (rTo <= rFrom || !range.label) return;
@@ -574,39 +742,42 @@
 
     // ── Vertical marker / pointer ──
     const markerX = marginLeft + valueRatio(currentValue) * barW;
-    const markerGroup = g.append('g').attr('class', 'gauge-needle linear-marker');
-
-    markerGroup.append('line')
-      .attr('x1', markerX).attr('y1', barY - 6)
-      .attr('x2', markerX).attr('y2', barY + barH + 6)
-      .attr('stroke', config.needleColor)
-      .attr('stroke-width', 3)
-      .attr('stroke-linecap', 'round');
-
     const triSize = 6;
-    markerGroup.append('polygon')
-      .attr('points', `${markerX},${barY - 2} ${markerX - triSize},${barY - triSize - 4} ${markerX + triSize},${barY - triSize - 4}`)
-      .attr('fill', config.needleColor);
 
-    if (config.enableTooltip) {
-      markerGroup
-        .on('mouseenter', function (event) {
-          const rangeInfo = findRangeForValue(currentValue);
-          showTooltip(event, config.title || 'Value', formatValue(currentValue),
-            rangeInfo ? rangeInfo.label : '');
-        })
-        .on('mousemove', function (event) { moveTooltip(event); })
-        .on('mouseleave', hideTooltip);
-    }
+    if (showNeedle) {
+      const markerGroup = g.append('g').attr('class', 'gauge-needle linear-marker');
 
-    if (animateNeedle && config.animate) {
-      const startX = marginLeft;
-      markerGroup
-        .attr('transform', `translate(${startX - markerX}, 0)`)
-        .transition()
-        .duration(1200)
-        .ease(d3.easeElasticOut.amplitude(1).period(0.6))
-        .attr('transform', 'translate(0, 0)');
+      markerGroup.append('line')
+        .attr('x1', markerX).attr('y1', barY - 6)
+        .attr('x2', markerX).attr('y2', barY + barH + 6)
+        .attr('stroke', config.needleColor)
+        .attr('stroke-width', 3)
+        .attr('stroke-linecap', 'round');
+
+      markerGroup.append('polygon')
+        .attr('points', `${markerX},${barY - 2} ${markerX - triSize},${barY - triSize - 4} ${markerX + triSize},${barY - triSize - 4}`)
+        .attr('fill', config.needleColor);
+
+      if (config.enableTooltip) {
+        markerGroup
+          .on('mouseenter', function (event) {
+            const rangeInfo = findRangeForValue(currentValue);
+            showTooltip(event, config.title || 'Value', formatValue(currentValue),
+              rangeInfo ? rangeInfo.label : '');
+          })
+          .on('mousemove', function (event) { moveTooltip(event); })
+          .on('mouseleave', hideTooltip);
+      }
+
+      if (animateNeedle && config.animate) {
+        const startX = marginLeft;
+        markerGroup
+          .attr('transform', `translate(${startX - markerX}, 0)`)
+          .transition()
+          .duration(1200)
+          .ease(d3.easeElasticOut.amplitude(1).period(0.6))
+          .attr('transform', 'translate(0, 0)');
+      }
     }
 
     // ── Value text above marker ──
@@ -621,10 +792,75 @@
       .text(formatValue(currentValue));
   }
 
+  // ── Linear Progress Track (neutral background behind the fill) ──
+
+  function renderLinearTrack(g, marginLeft, barY, barW, barH, barRadius) {
+    g.append('rect')
+      .attr('class', 'gauge-track')
+      .attr('x', marginLeft).attr('y', barY)
+      .attr('width', barW).attr('height', barH)
+      .attr('rx', barRadius).attr('ry', barRadius)
+      .attr('fill', config.trackColor || '#e9ecef');
+  }
+
+  // ── Linear Progress Fill (Min → Current, inheriting band colors) ──
+
+  function renderLinearFillSegments(g, marginLeft, barY, barW, barH, barRadius) {
+    if (!R) return;
+    const segments = R.computeFillSegments(resolvedRanges, config.minValue, currentValue, config.maxValue);
+    if (!segments.length) return;
+
+    // Clip the colored segments to a rounded-rect that spans Min → Current so
+    // the leading (and, at 100%, trailing) end of the fill stays nicely rounded.
+    const fillFrom = marginLeft + valueRatio(Math.max(config.minValue, segments[0].from)) * barW;
+    const fillTo = marginLeft + valueRatio(Math.min(config.maxValue, currentValue)) * barW;
+    const fillW = Math.max(0, fillTo - fillFrom);
+    if (fillW <= 0) return;
+
+    const clipId = 'linear-fill-clip-' + Math.random().toString(36).slice(2);
+    const defs = g.append('defs');
+    defs.append('clipPath').attr('id', clipId)
+      .append('rect')
+      .attr('x', fillFrom).attr('y', barY)
+      .attr('width', fillW).attr('height', barH)
+      .attr('rx', barRadius).attr('ry', barRadius);
+
+    const fillG = g.append('g').attr('clip-path', `url(#${clipId})`);
+
+    segments.forEach((seg, idx) => {
+      const x1 = marginLeft + valueRatio(Math.max(seg.from, config.minValue)) * barW;
+      const x2 = marginLeft + valueRatio(Math.min(seg.to, config.maxValue)) * barW;
+      const segW = x2 - x1;
+      if (segW <= 0) return;
+
+      const rect = fillG.append('rect')
+        .attr('class', 'gauge-fill-segment linear-fill-segment')
+        .attr('x', x1).attr('y', barY)
+        .attr('width', segW).attr('height', barH)
+        .attr('fill', seg.color)
+        .attr('data-index', idx);
+
+      if (config.enableTooltip) {
+        rect
+          .on('mouseenter', function (event) {
+            const rangeInfo = findRangeForValue(currentValue);
+            showTooltip(event, config.title || 'Value', formatValue(currentValue),
+              rangeInfo ? rangeInfo.label : (seg.label || ''));
+          })
+          .on('mousemove', function (event) { moveTooltip(event); })
+          .on('mouseleave', hideTooltip);
+      }
+      if (config.enableFilter) {
+        const rangeInfo = findRangeForValue(currentValue);
+        if (rangeInfo) rect.on('click', function () { filterByRange(rangeInfo); });
+      }
+    });
+  }
+
   // ── Linear Hard-Stop Segments (default) ──
 
   function renderLinearHardSegments(g, marginLeft, barY, barW, barH, barRadius) {
-    config.ranges.forEach((range, idx) => {
+    resolvedRanges.forEach((range, idx) => {
       const rFrom = Math.max(range.from, config.minValue);
       const rTo   = Math.min(range.to, config.maxValue);
       if (rTo <= rFrom) return;
@@ -710,7 +946,7 @@
       .attr('clip-path', `url(#${clipId})`);
 
     // Invisible overlay rects for tooltip/click interaction per range
-    config.ranges.forEach((range, idx) => {
+    resolvedRanges.forEach((range, idx) => {
       const rFrom = Math.max(range.from, config.minValue);
       const rTo   = Math.min(range.to, config.maxValue);
       if (rTo <= rFrom) return;
@@ -743,7 +979,7 @@
   // ─── Shared Helpers ────────────────────────────────────────────────
 
   function findRangeForValue(val) {
-    return config.ranges.find(r => val >= r.from && val < r.to) || config.ranges[config.ranges.length - 1];
+    return resolvedRanges.find(r => val >= r.from && val < r.to) || resolvedRanges[resolvedRanges.length - 1];
   }
 
   // ─── Tooltip ───────────────────────────────────────────────────────
@@ -813,25 +1049,32 @@
       }
 
       const values = dataTable.data.map(row => parseFloat(row[colIdx].value)).filter(v => !isNaN(v));
-      if (values.length === 0) {
-        currentValue = 0;
-      } else {
-        switch (config.aggregation) {
-          case 'SUM':   currentValue = d3.sum(values); break;
-          case 'AVG':   currentValue = d3.mean(values); break;
-          case 'MIN':   currentValue = d3.min(values); break;
-          case 'MAX':   currentValue = d3.max(values); break;
-          case 'FIRST': currentValue = values[0]; break;
-          default:      currentValue = d3.sum(values);
+      const aggregatedValue = aggregateColumn(dataTable, colIdx, config.aggregation);
+      currentValue = (aggregatedValue === null) ? 0 : aggregatedValue;
+
+      // ── Dynamic Max ──
+      // When the max is sourced from a worksheet field OR is set relative to the
+      // Goal, recompute the gauge's maximum scale value on every data refresh so
+      // it stays in sync with filters, parameters and mark selections. Falls back
+      // to the configured fixed maxValue if it cannot be resolved.
+      //   • 'field'        → aggregation of a worksheet field.
+      //   • 'relativeGoal' → Goal value × multiplier (resolveMax computes the
+      //                      Goal internally using the SAME aggregation pattern).
+      // Uses the shared resolution logic in resolve.js.
+      if ((config.maxMode === 'field' || config.maxMode === 'relativeGoal') && R) {
+        const maxR = R.resolveMax(config, dataTable);
+        if (maxR.ok) {
+          config.maxValue = maxR.value;
+        } else if (maxR.reason) {
+          console.warn('[Gauge] ' + maxR.reason + ' Using fixed Max Value.');
         }
       }
 
-      if (config.percentageMode === 'auto') {
-        const allInZeroOne = values.every(v => v >= 0 && v <= 1);
-        if (allInZeroOne) {
-          console.log('[Gauge] Auto-detect: data appears to be 0-1 percentage range.');
-        }
-      }
+      // ── Resolve Goal + concrete Ranges ──
+      // Computes the shared Goal value and turns each range's start-boundary
+      // mode (fixed / % of Max / % of Goal / Goal Field Value) into concrete
+      // {from,to} values that drive the rendering below.
+      resolveDerivedState(dataTable);
 
       hideError();
       hideLoading();
@@ -869,36 +1112,46 @@
       try {
         const parsed = JSON.parse(raw);
         if (parsed.gaugeType === 'full') parsed.gaugeType = 'semi';
-        config = { ...DEFAULT_CONFIG, ...parsed, ranges: (parsed.ranges || DEFAULT_CONFIG.ranges).map(r => ({ ...r })) };
-        console.log('[Gauge] Settings loaded:', config.worksheet, config.measure, 'type:', config.gaugeType);
+        config = {
+          ...DEFAULT_CONFIG,
+          ...parsed,
+          // Migrate legacy {from,to} ranges to the v2 {startMode,startValue} model.
+          ranges: R
+            ? R.migrateRanges(parsed.ranges && parsed.ranges.length ? parsed.ranges : DEFAULT_CONFIG.ranges)
+            : (parsed.ranges || DEFAULT_CONFIG.ranges).map(r => ({ ...r })),
+        };
+        // Backward compatibility: dashboards saved before Display Mode existed
+        // must keep the classic needle look (only new configs get needle+fill).
+        if (!Object.prototype.hasOwnProperty.call(parsed, 'displayMode')) {
+          config.displayMode = 'needle';
+        }
+        // Legacy configs used a Goal *field* only. Derive goalMode if absent.
+        if (!Object.prototype.hasOwnProperty.call(parsed, 'goalMode')) {
+          config.goalMode = parsed.goalField ? 'field' : 'none';
+        }
       } catch (e) {
         console.warn('[Gauge] Failed to parse saved settings:', e);
       }
-    } else {
-      console.log('[Gauge] No saved settings found — using defaults.');
     }
   }
 
   // ─── Configuration Dialog ─────────────────────────────────────────
 
   function openConfigureDialog() {
-    console.log('[Gauge] Configure callback triggered — opening popup dialog...');
     const baseUrl = window.location.href.replace(/\/[^/]*$/, '/');
     const popupUrl = baseUrl + 'config.html';
 
     tableau.extensions.ui.displayDialogAsync(
       popupUrl, '', { height: 600, width: 580 }
     ).then(function (closePayload) {
-      console.log('[Gauge] Config dialog closed. Payload:', closePayload);
       loadSettings();
       showLoading();
       fetchDataAndRender(true).then(function () {
         listenForDataChanges();
       });
     }).catch(function (error) {
-      if (error.errorCode === tableau.ErrorCodes.DialogClosedByUser) {
-        console.log('[Gauge] Config dialog closed by user (X button).');
-      } else {
+      // DialogClosedByUser is expected (user hit X) — ignore it; log the rest.
+      if (error.errorCode !== tableau.ErrorCodes.DialogClosedByUser) {
         console.error('[Gauge] Error displaying config dialog:', error);
       }
     });
@@ -966,19 +1219,15 @@
       }).catch(() => { /* parameters unavailable — non-fatal */ });
     }
 
-    console.log('[Gauge] Data change listeners registered across',
-      (dashboard.worksheets || []).length, 'worksheet(s).');
   }
 
   // ─── Initialization ───────────────────────────────────────────────
 
   async function initExtension() {
     showLoading();
-    console.log('[Gauge] Initializing extension...');
 
     try {
       await tableau.extensions.initializeAsync({ configure: openConfigureDialog });
-      console.log('[Gauge] Extension initialized successfully.');
       loadSettings();
 
       if (config.worksheet && config.measure) {
@@ -1023,7 +1272,6 @@
       fallbackToDemo();
       return;
     }
-    console.log('[Gauge] ✅ Tableau Extensions API detected.');
     initExtension();
   }
 
@@ -1036,10 +1284,11 @@
     config.percentDecimals = 1;
     config.minValue = 0;
     config.maxValue = 1;
+    config.goalField = '';
     config.ranges = [
-      { from: 0, to: 0.33, color: '#dc3545', label: 'Low' },
-      { from: 0.33, to: 0.66, color: '#ffc107', label: 'Medium' },
-      { from: 0.66, to: 1, color: '#28a745', label: 'High' },
+      { label: 'Low',    color: '#dc3545', startMode: 'fixed', startValue: 0 },
+      { label: 'Medium', color: '#ffc107', startMode: 'fixed', startValue: 0.33 },
+      { label: 'High',   color: '#28a745', startMode: 'fixed', startValue: 0.66 },
     ];
     // Allow overriding the gauge type via ?type= for local preview/testing,
     // e.g. gauge.html?type=three-quarter or gauge.html?type=linear.
@@ -1049,8 +1298,9 @@
         config.gaugeType = demoType;
       }
     } catch (e) { /* ignore */ }
+    // Resolve ranges (no data table → goal null) before rendering.
+    resolveDerivedState(null);
     renderGauge(true);
-    console.info('[Gauge] Rendering standalone demo gauge (Tableau API not available).');
   }
 
   checkApiAndBoot();

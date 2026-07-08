@@ -16,7 +16,7 @@
              https://your-site.netlify.app/gauge.html
              https://your-bucket.s3.amazonaws.com/gauge-extension/gauge.html
            ============================================================ -->
-      <url>https://brunnerworks-tableau.github.io/viz-extension/gauge.html</url>
+      <url>https://arp001.github.io/viz-extension/gauge.html</url>
     </source-location>
     <icon>iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAALEwAACxMBAJqcGAAAAlhJREFUOI2Nkj1oU1EUx3/3vZeX5765SdO0MZq0JkGrVKyDiw7i4uTm4OIgOgiKg4i4ODhIBxEHBzu5OYlgxUVQW4VWsKBYTYOm0STv4+a+e12apjb4h8vh3PM//3PuFf5n7U3J8WT6rBLyMFAGEqVIKxB3RKKF0VhcCKP5Fxa/fhXYk5HdCNMvtda9QmCEF6gTx3RHlNraSCy/EuF/X/DVGph5W7d3dhIGiSFEBR3kDnCc5IFh5sMNdF5alJnqeHFupwAS7I3EN1Fo/k7RW65Z5gdJPn3mPCBWy5cMXd9gRLTuymN3sG3rMzAb+8QO6aeeMHnGdH/0X3IwEv1oMnoZQ9cBLiPOxGPN9sPGPABjy2PSz75tygVcMEIDICZIEqVkgupxbL3vy7qMd/IOH/F55efD5AvUVHDkc4rKI96jaMydaiiNSFYWPjVCSBTp+b7dG/7DjV+3k5JMp1b6Ov/8Iu+ePxjC1HCmJqE1DRgPQNowuqqFnHNJxFLuU4e/9X+L8BN1qVcL1B0WZ7hNNKygkRlJI8eiPiMV/M+DMiLYS9EUFnDqLDHZ8/3e21w0/KPw+mAUPAA7gUdTxW/d3ep+9e3Eg6KGtkFkCjHCWXK1rcWKhbp+wNlFAJ7geugYUgV6TGRC17Zt3NqzjGRmEuFpW5NesYpgJM+1OjOvqKb5brxFrCqQDNXqWh2sDRWvBk0O2N7Oy3hTPV3r+JHTQ9lm1+f10Tu/TShb16F3Y+J8p/eekXbVKjHy0j3ibaO4/cfhn4LLqmXGBcGkYPd/oNpRLJqzb30AAAAASUVORK5CYII=</icon>
     <permissions>

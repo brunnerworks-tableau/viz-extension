@@ -602,3 +602,169 @@ html, body {
     gap: 0;
   }
 }
+
+
+/* =========================================
+   Sectioned Config Layout (added for v2)
+   ========================================= */
+
+.config-section {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 14px 14px 6px;
+  margin-bottom: 16px;
+  background: #fcfdfe;
+}
+
+.config-section .section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-text);
+  margin-bottom: 4px;
+}
+
+.config-section .section-desc {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  margin-bottom: 12px;
+}
+
+/* --- Dynamic Range Item (label / color / start mode / start value) --- */
+.range-item.range-item-v2 {
+  display: grid;
+  grid-template-columns: 34px 1fr 1.1fr 80px 24px;
+  grid-template-areas: "color label mode value remove";
+  align-items: center;
+  gap: 8px;
+}
+
+.range-item-v2 .range-color   { grid-area: color; }
+.range-item-v2 .range-label-input { grid-area: label; width: 100%; min-width: 0; }
+.range-item-v2 .range-startmode   { grid-area: mode; width: 100%; min-width: 0;
+  padding: 5px 6px; font-size: 12px; border: 1px solid var(--color-border);
+  border-radius: 4px; background: #fff; }
+.range-item-v2 .range-startvalue  { grid-area: value; width: 100%; min-width: 0; }
+.range-item-v2 .remove-range-btn  { grid-area: remove; }
+
+.range-item-v2 .range-startvalue.startvalue-hidden { visibility: hidden; }
+
+.range-item-v2 .range-resolved {
+  grid-column: 1 / -1;
+  font-size: 10.5px;
+  color: var(--color-text-muted);
+  padding: 2px 2px 0;
+}
+.range-item-v2 .range-resolved strong { color: var(--color-text); font-weight: 600; }
+.range-item-v2 .range-resolved .rr-detail { color: var(--color-primary, #4a90d9); font-style: italic; }
+
+/* --- Plain-language summary sentence --- */
+.vp-summary {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--color-input-bg, #f8f9fa);
+  border-left: 3px solid var(--color-primary, #4a90d9);
+  border-radius: var(--radius, 4px);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text, #333);
+}
+.vp-summary:empty { display: none; }
+
+/* --- Validation Preview --- */
+.validation-preview {
+  background: var(--color-input-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 12px;
+}
+
+.validation-preview .vp-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 3px 0;
+}
+.validation-preview .vp-row + .vp-row {
+  border-top: 1px dashed var(--color-border);
+}
+
+.validation-preview .vp-key {
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-size: 11px;
+  min-width: 96px;
+  flex-shrink: 0;
+}
+
+.validation-preview .vp-val {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.validation-preview .vp-ranges-row .vp-val {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.vp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.vp-chip .vp-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+  border: 1px solid rgba(0,0,0,0.15);
+}
+
+/* --- Validation Warnings --- */
+.validation-warnings {
+  margin-top: 10px;
+  border: 1px solid var(--color-warning);
+  background: #fff8e1;
+  border-radius: var(--radius);
+  padding: 8px 10px;
+}
+
+.validation-warnings .vw-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #8a6d00;
+  margin-bottom: 6px;
+}
+
+.validation-warnings ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.validation-warnings li {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #6b5500;
+  margin-bottom: 2px;
+}
+
+/* Save button reflects an error/blocked state when there are warnings */
+.btn-primary.btn-has-warnings {
+  background: var(--color-warning);
+  border-color: var(--color-warning);
+  color: #5a4600;
+}
+.btn-primary.btn-has-warnings:hover {
+  background: #e6ad06;
+}
