@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gauge Configuration</title>
+
+  <!-- Tableau Extensions API — loaded from the OFFICIAL tableau/extensions-api GitHub repo via jsDelivr CDN -->
+  <script src="https://cdn.jsdelivr.net/gh/tableau/extensions-api@main/lib/tableau.extensions.1.latest.min.js"></script>
+
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    /* Dialog-specific overrides — this page IS the dialog, so no overlay needed */
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      background: #fff;
+    }
+    .config-panel {
+      width: 100%;
+      max-width: 100%;
+      height: 100%;
+      max-height: 100%;
+      border-radius: 0;
+      box-shadow: none;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="config-panel">
+
+    <div class="config-header">
+      <h2>⚙ Gauge Configuration</h2>
+    </div>
+
+    <div class="config-body">
+      <!-- Tabs -->
+      <div class="config-tabs">
+        <button class="config-tab active" data-tab="tab-data">Data</button>
+        <button class="config-tab" data-tab="tab-ranges">Ranges &amp; Colors</button>
+        <button class="config-tab" data-tab="tab-visual">Visual</button>
+        <button class="config-tab" data-tab="tab-interaction">Interaction</button>
+      </div>
+
+      <!-- TAB: Data -->
+      <div id="tab-data" class="config-tab-content active">
+        <div class="form-group">
+          <label>Worksheet</label>
+          <select id="cfg-worksheet"><option value="">— Select worksheet —</option></select>
+        </div>
+        <div class="form-group">
+          <label>Measure (Value Field)</label>
+          <select id="cfg-measure"><option value="">— Select measure —</option></select>
+        </div>
+        <div class="form-group">
+          <label>Aggregation</label>
+          <select id="cfg-aggregation">
+            <option value="SUM">Sum</option>
+            <option value="AVG">Average</option>
+            <option value="MIN">Min</option>
+            <option value="MAX">Max</option>
+            <option value="FIRST">First Value</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Min Value</label>
+            <input type="number" id="cfg-min" value="0" />
+          </div>
+          <div class="form-group">
+            <label>Max Value Source</label>
+            <select id="cfg-max-mode">
+              <option value="fixed">Fixed Number</option>
+              <option value="field">Field from Worksheet</option>
+              <option value="relativeGoal">Relative to Goal</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Max: Fixed Number input (shown when Max Value Source = Fixed Number) -->
+        <div class="form-group" id="max-fixed-group">
+          <label>Max Value</label>
+          <input type="number" id="cfg-max" value="100" />
+        </div>
+
+        <!-- Max: Field selector (shown when Max Value Source = Field from Worksheet) -->
+        <div class="form-group" id="max-field-group" style="display:none;">
+          <label>Max Field</label>
+          <select id="cfg-max-field"><option value="">— Select field —</option></select>
+        </div>
+        <div class="form-group" id="max-field-agg-group" style="display:none;">
+          <label>Max Field Aggregation</label>
+          <select id="cfg-max-aggregation">
+            <option value="SUM">Sum</option>
+            <option value="AVG">Average</option>
+            <option value="MIN">Min</option>
+            <option value="MAX">Max</option>
+            <option value="COUNT">Count</option>
+          </select>
+          <div class="form-hint">
+            The gauge's maximum scale value is computed from this field using the selected aggregation, and updates dynamically with filters.
+          </div>
+        </div>
+
+        <!-- Max: Relative to Goal multiplier (shown when Max Value Source = Relative to Goal) -->
+        <div class="form-group" id="max-relative-group" style="display:none;">
+          <label>Max Multiplier (× Goal)</label>
+          <input type="text" id="cfg-max-multiplier" value="1.5" placeholder="e.g. 1.5 or 150%" />
+          <div class="form-hint">
+            The gauge maximum is computed as <strong>Goal × Multiplier</strong>. Enter a number
+            (<code>1.5</code>) or a percentage (<code>150%</code>) — both set Max to 1.5× the Goal.
+            The scale grows proportionally as the Goal changes. Requires a Goal field (below).
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Gauge Title</label>
+          <input type="text" id="cfg-title" placeholder="e.g. Revenue Target" />
+        </div>
+        <div class="form-group">
+          <label>Subtitle</label>
+          <input type="text" id="cfg-subtitle" placeholder="e.g. Q4 2025" />
+        </div>
+
+        <!-- Percentage Mode Section -->
+        <div class="form-group pct-section">
+          <label>Percentage Mode</label>
+          <select id="cfg-percentage-mode">
+            <option value="off">Off — standard number display</option>
+            <option value="auto">Auto-Detect — smart % detection</option>
+            <option value="pct0to1">Data is 0–1 (e.g. 0.72 → 72%)</option>
+            <option value="pct0to100">Data is 0–100 (e.g. 72 → 72%)</option>
+          </select>
+          <div class="form-hint" id="pct-mode-hint">
+            <strong>Auto-Detect:</strong> If min=0 and max≤1, treats data as 0–1 ratios and converts to percentages.
+          </div>
+        </div>
+        <div class="form-group pct-section" id="pct-decimals-group">
+          <label>Percentage Decimal Places</label>
+          <select id="cfg-percent-decimals">
+            <option value="0">0 — (72%)</option>
+            <option value="1">1 — (72.0%)</option>
+            <option value="2">2 — (72.00%)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- TAB: Ranges & Colors -->
+      <div id="tab-ranges" class="config-tab-content">
+
+        <!-- ───────── Goal Reference (shared) ───────── -->
+        <div class="config-section">
+          <div class="section-title">🎯 Goal Reference</div>
+          <p class="section-desc">
+            A single shared reference value — the <strong>anchor</strong> for relative
+            calculations. It can be a fixed number or computed from a worksheet field, and
+            is used by “% of Goal”, “Goal Value” range boundaries and the “Relative to Goal”
+            Max mode. It does <em>not</em> replace the primary metric.
+          </p>
+
+          <div class="form-group">
+            <label>Goal Source</label>
+            <select id="cfg-goal-mode">
+              <option value="none">— None —</option>
+              <option value="fixed">Fixed Value</option>
+              <option value="field">Field from Worksheet</option>
+            </select>
+          </div>
+
+          <!-- Goal: Fixed value input -->
+          <div class="form-group" id="goal-fixed-group" style="display:none;">
+            <label>Goal Value</label>
+            <input type="number" step="any" id="cfg-goal-value" value="0" />
+          </div>
+
+          <!-- Goal: Field + aggregation -->
+          <div class="form-row" id="goal-field-group" style="display:none;">
+            <div class="form-group">
+              <label>Goal Field</label>
+              <select id="cfg-goal-field"><option value="">— Select field —</option></select>
+            </div>
+            <div class="form-group">
+              <label>Goal Aggregation</label>
+              <select id="cfg-goal-aggregation">
+                <option value="SUM">Sum</option>
+                <option value="AVG">Average</option>
+                <option value="MIN">Min</option>
+                <option value="MAX">Max</option>
+                <option value="COUNT">Count</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- ───────── Ranges & Colors ───────── -->
+        <div class="config-section">
+          <div class="section-title">🎨 Ranges &amp; Colors</div>
+          <p class="section-desc">
+            Define color bands on the gauge. Each range has a label, color and a
+            <strong>start boundary</strong>. A range ends where the next one starts; the
+            last range ends at Max. The first range's start is whatever you set.
+          </p>
+
+          <!-- Preset Templates -->
+          <div class="preset-buttons">
+            <span class="preset-label">Presets:</span>
+            <button class="preset-btn" id="preset-default">3-Band (0–100)</button>
+            <button class="preset-btn" id="preset-pct3">% 3-Band (0–1)</button>
+            <button class="preset-btn" id="preset-pct4">% 4-Band (0–1)</button>
+            <button class="preset-btn" id="preset-pct100-3">% 3-Band (0–100)</button>
+          </div>
+
+          <div class="range-list" id="range-list"></div>
+          <button class="add-range-btn" id="add-range-btn">＋ Add Range</button>
+
+          <!-- Gradient Toggle -->
+          <div class="form-group gradient-section">
+            <div class="toggle-group">
+              <input type="checkbox" id="cfg-use-gradient" />
+              <span>Use Smooth Color Gradients</span>
+            </div>
+            <div class="form-hint" id="gradient-hint">
+              When enabled, color bands blend smoothly into each other instead of using hard color stops.
+            </div>
+          </div>
+        </div>
+
+        <!-- ───────── Live Validation Preview ───────── -->
+        <div class="config-section">
+          <div class="section-title">✅ Validation Preview</div>
+          <p class="section-desc">
+            Values resolved from your current settings (and the selected worksheet's data).
+            Recomputed live as you edit.
+          </p>
+          <div class="validation-preview" id="validation-preview">
+            <div class="vp-row"><span class="vp-key">Max</span><span class="vp-val" id="vp-max">—</span></div>
+            <div class="vp-row"><span class="vp-key">Goal</span><span class="vp-val" id="vp-goal">—</span></div>
+            <div class="vp-row vp-ranges-row">
+              <span class="vp-key">Range starts</span>
+              <div class="vp-val" id="vp-ranges">—</div>
+            </div>
+          </div>
+          <div class="vp-summary" id="vp-summary"></div>
+          <div class="validation-warnings" id="validation-warnings" style="display:none;"></div>
+        </div>
+      </div>
+
+      <!-- TAB: Visual -->
+      <div id="tab-visual" class="config-tab-content">
+
+        <!-- ───────── Layout & Display ───────── -->
+        <div class="config-section">
+          <div class="section-title">📐 Layout &amp; Display</div>
+          <p class="section-desc">
+            Choose the gauge <strong>Shape</strong> and how the current value is
+            <strong>displayed</strong>. Display Mode works with every shape.
+          </p>
+
+          <!-- Shape (Gauge Type) Selector -->
+          <div class="form-group">
+            <label>Shape</label>
+            <select id="cfg-gauge-type">
+              <option value="semi">Arc — Semi-Circular (180°)</option>
+              <option value="three-quarter">Arc — Three-Quarter (270°)</option>
+              <option value="linear">Linear Horizontal</option>
+            </select>
+            <div class="form-hint" id="gauge-type-hint">
+              <strong>Semi-Circular:</strong> Classic 180° half-circle gauge.
+            </div>
+          </div>
+
+          <!-- Display Mode Selector -->
+          <div class="form-group">
+            <label>Display Mode</label>
+            <select id="cfg-display-mode">
+              <option value="needle">Needle</option>
+              <option value="fill">Progress Fill</option>
+              <option value="needle+fill">Needle + Fill (Recommended)</option>
+            </select>
+            <div class="form-hint" id="display-mode-hint">
+              <strong>Needle:</strong> Classic pointer over colored threshold bands.
+            </div>
+          </div>
+
+          <!-- Track color (used behind the progress fill) -->
+          <div class="form-group" id="track-color-group" style="display:none;">
+            <label>Fill Track Color</label>
+            <input type="color" id="cfg-track-color" value="#e9ecef" />
+            <div class="form-hint">
+              The neutral background track shown behind the progress fill.
+            </div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Needle / Marker Color</label>
+            <input type="color" id="cfg-needle-color" value="#a3a3a3" />
+          </div>
+          <div class="form-group">
+            <label>Background Color</label>
+            <input type="color" id="cfg-bg-color" value="#ffffff" />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>&nbsp;</label>
+            <div class="toggle-group">
+              <input type="checkbox" id="cfg-bg-transparent" checked />
+              <span>Transparent (blend with dashboard)</span>
+            </div>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Value Font Size (px)</label>
+            <input type="number" id="cfg-value-fontsize" value="28" min="10" max="80" />
+          </div>
+          <div class="form-group">
+            <label>Value Color</label>
+            <input type="color" id="cfg-value-color" value="#333333" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Arc Thickness (%)</label>
+          <input type="range" id="cfg-arc-thickness" min="10" max="60" value="30" />
+          <div class="range-value" id="arc-thickness-display">30%</div>
+        </div>
+        <div class="form-group">
+          <label>Value Format</label>
+          <select id="cfg-value-format">
+            <option value="number">Number (1,234)</option>
+            <option value="decimal1">Decimal (1,234.5)</option>
+            <option value="decimal2">Decimal (1,234.56)</option>
+            <option value="percent">Percent (85%)</option>
+            <option value="currency">Currency ($1,234)</option>
+            <option value="compact">Compact (1.2K)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Currency Symbol</label>
+          <input type="text" id="cfg-currency-symbol" value="$" maxlength="4" />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <div class="toggle-group">
+              <input type="checkbox" id="cfg-show-labels" checked />
+              <span>Show Min / Max Labels</span>
+            </div>
+          </div>
+          <div class="form-group">
+            <div class="toggle-group">
+              <input type="checkbox" id="cfg-show-ticks" checked />
+              <span>Show Tick Marks</span>
+            </div>
+          </div>
+        </div>
+        <div class="form-group">
+          <div class="toggle-group">
+            <input type="checkbox" id="cfg-show-range-labels" />
+            <span>Show Range Labels on Arc</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB: Interaction -->
+      <div id="tab-interaction" class="config-tab-content">
+        <div class="form-group">
+          <div class="toggle-group">
+            <input type="checkbox" id="cfg-enable-filter" checked />
+            <span>Enable click-to-filter on range segments</span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Filter Field</label>
+          <select id="cfg-filter-field"><option value="">— Same as measure —</option></select>
+        </div>
+        <div class="form-group">
+          <div class="toggle-group">
+            <input type="checkbox" id="cfg-enable-tooltip" checked />
+            <span>Show Tooltips on Hover</span>
+          </div>
+        </div>
+        <div class="form-group">
+          <div class="toggle-group">
+            <input type="checkbox" id="cfg-animate" checked />
+            <span>Animate Needle on Load</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="config-footer">
+      <button class="btn btn-secondary" id="config-cancel-btn">Cancel</button>
+      <button class="btn btn-primary" id="config-save-btn">Save &amp; Apply</button>
+    </div>
+  </div>
+
+  <script src="resolve.js"></script>
+  <script src="config_advanced.js"></script>
+</body>
+</html>
