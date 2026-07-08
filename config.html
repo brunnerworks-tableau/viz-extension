@@ -123,6 +123,123 @@
           <input type="text" id="cfg-subtitle" placeholder="e.g. Q4 2025" />
         </div>
 
+        <!-- ══ Title & Subtitle Formatting (optional) ══ -->
+        <details class="fmt-section">
+          <summary>Title &amp; Subtitle Formatting <span class="fmt-optional">(optional)</span></summary>
+          <div class="fmt-hint">
+            Leave a control on <strong>Default</strong> / blank to keep the original look.
+            Existing dashboards are unaffected unless you change a value here.
+          </div>
+
+          <!-- Title formatting -->
+          <div class="fmt-block-label">Title</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Font Family</label>
+              <select id="cfg-title-font-family">
+                <option value="">Default</option>
+                <option value="Arial, Helvetica, sans-serif">Arial / Helvetica</option>
+                <option value="'Segoe UI', Roboto, sans-serif">Segoe UI / Roboto</option>
+                <option value="'Times New Roman', Times, serif">Times New Roman</option>
+                <option value="Georgia, serif">Georgia</option>
+                <option value="'Courier New', monospace">Courier New</option>
+                <option value="'Trebuchet MS', sans-serif">Trebuchet MS</option>
+                <option value="Verdana, Geneva, sans-serif">Verdana</option>
+                <option value="Tableau, 'Benton Sans', sans-serif">Tableau</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Font Size (px)</label>
+              <input type="number" id="cfg-title-font-size" min="6" max="80" placeholder="18 (default)" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Font Weight</label>
+              <select id="cfg-title-font-weight">
+                <option value="">Default</option>
+                <option value="300">Light (300)</option>
+                <option value="400">Normal (400)</option>
+                <option value="500">Medium (500)</option>
+                <option value="600">Semi-bold (600)</option>
+                <option value="700">Bold (700)</option>
+                <option value="800">Extra-bold (800)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Alignment</label>
+              <select id="cfg-title-align">
+                <option value="">Default</option>
+                <option value="left">Left</option>
+                <option value="center">Center</option>
+                <option value="right">Right</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Font Color</label>
+            <div class="checkbox-line">
+              <input type="checkbox" id="cfg-title-color-enabled" />
+              <input type="color" id="cfg-title-font-color" value="#333333" disabled />
+              <span class="fmt-color-note">Enable to override the default color</span>
+            </div>
+          </div>
+
+          <!-- Subtitle formatting -->
+          <div class="fmt-block-label">Subtitle</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Font Family</label>
+              <select id="cfg-subtitle-font-family">
+                <option value="">Default</option>
+                <option value="Arial, Helvetica, sans-serif">Arial / Helvetica</option>
+                <option value="'Segoe UI', Roboto, sans-serif">Segoe UI / Roboto</option>
+                <option value="'Times New Roman', Times, serif">Times New Roman</option>
+                <option value="Georgia, serif">Georgia</option>
+                <option value="'Courier New', monospace">Courier New</option>
+                <option value="'Trebuchet MS', sans-serif">Trebuchet MS</option>
+                <option value="Verdana, Geneva, sans-serif">Verdana</option>
+                <option value="Tableau, 'Benton Sans', sans-serif">Tableau</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Font Size (px)</label>
+              <input type="number" id="cfg-subtitle-font-size" min="6" max="60" placeholder="12 (default)" />
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Font Weight</label>
+              <select id="cfg-subtitle-font-weight">
+                <option value="">Default</option>
+                <option value="300">Light (300)</option>
+                <option value="400">Normal (400)</option>
+                <option value="500">Medium (500)</option>
+                <option value="600">Semi-bold (600)</option>
+                <option value="700">Bold (700)</option>
+                <option value="800">Extra-bold (800)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Alignment</label>
+              <select id="cfg-subtitle-align">
+                <option value="">Default</option>
+                <option value="left">Left</option>
+                <option value="center">Center</option>
+                <option value="right">Right</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Font Color</label>
+            <div class="checkbox-line">
+              <input type="checkbox" id="cfg-subtitle-color-enabled" />
+              <input type="color" id="cfg-subtitle-font-color" value="#777777" disabled />
+              <span class="fmt-color-note">Enable to override the default color</span>
+            </div>
+          </div>
+        </details>
+
         <!-- Percentage Mode Section -->
         <div class="form-group pct-section">
           <label>Percentage Mode</label>

@@ -41,6 +41,21 @@
     goalAggregation: 'SUM',
     title: 'Gauge',
     subtitle: '',
+    // ── Title / Subtitle text formatting (ALL OPTIONAL) ──
+    //   Every field defaults to '' meaning "inherit the original CSS default"
+    //   (title 18px / weight 600 / #333333 / centered; subtitle 12px / normal /
+    //   #777777 / centered). Existing dashboards have none of these keys, so
+    //   they render byte-for-byte identical to the pre-enhancement version.
+    titleFontFamily: '',
+    titleFontSize: '',      // px (number); '' = CSS default (18)
+    titleFontColor: '',
+    titleFontWeight: '',    // '300'|'400'|'500'|'600'|'700'|'800'|'normal'|'bold'
+    titleAlign: '',         // 'left' | 'center' | 'right'
+    subtitleFontFamily: '',
+    subtitleFontSize: '',   // px (number); '' = CSS default (12)
+    subtitleFontColor: '',
+    subtitleFontWeight: '',
+    subtitleAlign: '',
     // Ranges use the v2 model: { label, color, startMode, startValue }
     //   startMode: 'fixed' | 'pctMax' | 'pctGoal' | 'goal'
     ranges: [
@@ -306,6 +321,20 @@
     document.getElementById('gauge-title').textContent = config.title || '';
     document.getElementById('gauge-subtitle').textContent = config.subtitle || '';
 
+    // ── Optional Title / Subtitle formatting overrides ──
+    //    Each override is applied only when set; otherwise the element keeps
+    //    its original CSS styling so legacy dashboards render unchanged.
+    applyTextFormatting(document.getElementById('gauge-title'), {
+      family: config.titleFontFamily, size: config.titleFontSize,
+      color: config.titleFontColor, weight: config.titleFontWeight,
+      align: config.titleAlign,
+    });
+    applyTextFormatting(document.getElementById('gauge-subtitle'), {
+      family: config.subtitleFontFamily, size: config.subtitleFontSize,
+      color: config.subtitleFontColor, weight: config.subtitleFontWeight,
+      align: config.subtitleAlign,
+    });
+
     // ── Background color (defaults to transparent so the Tableau dashboard
     //    background shows through). Applied to the iframe body and the gauge
     //    container so it covers the entire extension viewport. ──
@@ -314,6 +343,29 @@
     document.body.style.background = bg;
     const gaugeContainer = document.getElementById('gauge-container');
     if (gaugeContainer) gaugeContainer.style.background = bg;
+  }
+
+  // ── Apply optional inline text-formatting overrides to a title/subtitle
+  //    element. Any option left empty/null is cleared so the element falls
+  //    back to its original CSS styling (guaranteeing legacy dashboards, which
+  //    carry none of these keys, render exactly as before). ──
+  function applyTextFormatting(el, opts) {
+    if (!el) return;
+    opts = opts || {};
+    // Clear previously-applied overrides first so re-renders stay clean.
+    el.style.fontFamily = '';
+    el.style.fontSize = '';
+    el.style.color = '';
+    el.style.fontWeight = '';
+    el.style.textAlign = '';
+    if (opts.family) el.style.fontFamily = opts.family;
+    if (opts.size !== '' && opts.size !== null && opts.size !== undefined) {
+      const n = parseFloat(opts.size);
+      if (!isNaN(n) && n > 0) el.style.fontSize = n + 'px';
+    }
+    if (opts.color) el.style.color = opts.color;
+    if (opts.weight) el.style.fontWeight = String(opts.weight);
+    if (opts.align) el.style.textAlign = opts.align;
   }
 
   // ═══════════════════════════════════════════════════════════════════
