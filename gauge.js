@@ -68,6 +68,10 @@
     valueFontSize: 28,
     valueColor: '#333333',
     arcThickness: 30,
+    // Manual gauge size multiplier (50–100). 100 = full proportional auto-fit
+    // (fills the tile like the original). Lower values shrink the arc so users
+    // can fine-tune. Legacy configs without this key default to 100 (no change).
+    gaugeScale: 100,
     valueFormat: 'number',
     currencySymbol: '$',
     showLabels: true,
@@ -211,6 +215,19 @@
       case 'compact':  return d3.format('.3~s')(v);
       default:         return d3.format(',.0f')(v);
     }
+  }
+
+  /**
+   * Auto-scale the center value font so the number stays proportionate to the
+   * arc on small tiles. The user's configured Value Font Size acts as the UPPER
+   * bound (manual override): on normal/large gauges the font stays exactly at
+   * the configured size; only when the arc gets small does the font shrink with
+   * it. Floored at 10px for legibility. Non-breaking for existing dashboards.
+   */
+  function computeValueFontSize(radius) {
+    const configured = config.valueFontSize || 28;
+    const auto = radius * 0.32;
+    return Math.max(10, Math.min(configured, auto));
   }
 
   /** Compute value ratio clamped to [0, 1] */
@@ -422,44 +439,46 @@
     let radius, cx, cy;
     const innerRatio = 1 - config.arcThickness / 100;
 
-    // ── Hybrid Radius Calculation ──
-    // Intelligently balance available space based on whether labels/ticks are shown.
-    // When labels/ticks are hidden, use aggressive scaling (closer to the original 0.82x)
-    // to recapture space. When they are shown, use conservative padding to ensure clarity.
-    
+    // ── Proportional Auto-Fit Radius (restores original footprint) ──
+    // The arc scales to fill the tile like the original gauge. Tick marks and
+    // min/max labels are painted BEYOND the arc radius and are allowed to
+    // overflow the SVG (see #gauge-svg { overflow: visible } in styles.css),
+    // so we only reserve a small guard band instead of a large fixed margin.
+    // A short, wide tile therefore keeps a big arc instead of shrinking ~40%.
+    //
+    // outerExtra  — small horizontal guard so the arc's left/right edges (and
+    //               side ticks/labels) don't clip against the tile border.
+    // topPad      — minimum gap below the title text above the SVG.
+    // bottomPad   — room below the baseline for the value text + min/max labels.
     const showLabelsOrTicks = config.showLabels || config.showTicks;
-    // Conservative padding (26px) when labels/ticks are present (room for tick marks + labels)
-    // Aggressive padding (8px) when labels/ticks are hidden, allowing 0.82x-like radius scaling
-    const outerExtra = showLabelsOrTicks ? 26 : 8;
-    // Minimum breathing room at the top so the arc never collides with the
-    // title/subtitle text rendered above the SVG.
-    const topPad = 8;
+    const outerExtra = showLabelsOrTicks ? 10 : 6;
+    const topPad = 6;
+
+    // ── User-controlled size multiplier (Gauge Scale) ──
+    // Clamped to [0.5, 1.0]. 1.0 = full proportional auto-fit.
+    const scale = Math.max(0.5, Math.min(1, (config.gaugeScale != null ? config.gaugeScale : 100) / 100));
 
     if (type === 'semi') {
-      // Semi-circle fills the top half: it rises `radius` (+ outerExtra) above
-      // the baseline and needs a little space below for the needle hub, value
-      // text and the min/max labels.
-      const bottomPad = config.showLabels ? 24 : 14;
+      // Semi-circle fills the top half: it rises `radius` above the baseline
+      // and needs a little space below for the needle hub, value text and the
+      // min/max labels. Subtracting only topPad + bottomPad yields an effective
+      // ~0.80–0.82 height factor — matching the original proportional look.
+      const bottomPad = config.showLabels ? 22 : 12;
       const radiusByW = (gaugeW / 2) - outerExtra;
-      // Aggressive height-based radius formula when no labels/ticks (recaptures ~14%)
-      const heightFactor = showLabelsOrTicks ? (gaugeH - topPad - outerExtra - bottomPad) : (gaugeH * 0.82);
-      const radiusByH = heightFactor;
-      radius = Math.max(20, Math.min(radiusByW, radiusByH));
+      const radiusByH = gaugeH - topPad - bottomPad;
+      radius = Math.max(20, Math.min(radiusByW, radiusByH) * scale);
       cx = gaugeW / 2;
       // Vertically centre the composition while guaranteeing the top padding.
-      const usedH = radius + outerExtra + bottomPad;
+      const usedH = radius + bottomPad;
       const freeTop = Math.max(topPad, (gaugeH - usedH) / 2);
-      cy = freeTop + outerExtra + radius;
+      cy = freeTop + radius;
     } else if (type === 'three-quarter') {
       // 270° arc opening at the bottom: it spans `radius` above the centre and
-      // ~0.707·radius below it, plus outerExtra for ticks/labels on each side.
+      // ~0.707·radius below it. Only a small guard is reserved on each side;
+      // ticks/labels overflow beyond the arc.
       const radiusByW = (gaugeW / 2) - outerExtra;
-      // Aggressive height-based radius formula when no labels/ticks
-      const heightFactor = showLabelsOrTicks 
-        ? (gaugeH - topPad - 2 * outerExtra) / 1.707
-        : (gaugeH * 0.82 / 1.707);
-      const radiusByH = heightFactor;
-      radius = Math.max(20, Math.min(radiusByW, radiusByH));
+      const radiusByH = (gaugeH - topPad - 2 * outerExtra) / 1.707;
+      radius = Math.max(20, Math.min(radiusByW, radiusByH) * scale);
       cx = gaugeW / 2;
       const usedH = 1.707 * radius + 2 * outerExtra;
       const freeTop = Math.max(topPad, (gaugeH - usedH) / 2);
@@ -610,7 +629,7 @@
     const valueText = g.append('text')
       .attr('class', 'gauge-value-text')
       .attr('text-anchor', 'middle')
-      .attr('font-size', `${config.valueFontSize}px`)
+      .attr('font-size', `${computeValueFontSize(radius)}px`)
       .style('fill', config.valueColor)
       .text(formatValue(currentValue));
 

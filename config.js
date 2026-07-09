@@ -62,6 +62,7 @@
     valueFontSize: 28,
     valueColor: '#333333',
     arcThickness: 30,
+    gaugeScale: 100,
     valueFormat: 'number',
     currencySymbol: '$',
     showLabels: true,
@@ -205,6 +206,8 @@
     document.getElementById('cfg-value-color').value = config.valueColor;
     document.getElementById('cfg-arc-thickness').value = config.arcThickness;
     document.getElementById('arc-thickness-display').textContent = config.arcThickness + '%';
+    document.getElementById('cfg-gauge-scale').value = config.gaugeScale != null ? config.gaugeScale : 100;
+    document.getElementById('gauge-scale-display').textContent = (config.gaugeScale != null ? config.gaugeScale : 100) + '%';
     document.getElementById('cfg-value-format').value = config.valueFormat;
     document.getElementById('cfg-currency-symbol').value = config.currencySymbol;
     document.getElementById('cfg-show-labels').checked = config.showLabels;
@@ -414,6 +417,7 @@
     config.valueFontSize = parseInt(document.getElementById('cfg-value-fontsize').value, 10) || 28;
     config.valueColor = document.getElementById('cfg-value-color').value;
     config.arcThickness = parseInt(document.getElementById('cfg-arc-thickness').value, 10) || 30;
+    config.gaugeScale = parseInt(document.getElementById('cfg-gauge-scale').value, 10) || 100;
     config.valueFormat = document.getElementById('cfg-value-format').value;
     config.currencySymbol = document.getElementById('cfg-currency-symbol').value || '$';
     config.showLabels = document.getElementById('cfg-show-labels').checked;
@@ -651,6 +655,11 @@
     // Arc thickness slider
     document.getElementById('cfg-arc-thickness').addEventListener('input', function () {
       document.getElementById('arc-thickness-display').textContent = this.value + '%';
+    });
+
+    // Gauge scale slider
+    document.getElementById('cfg-gauge-scale').addEventListener('input', function () {
+      document.getElementById('gauge-scale-display').textContent = this.value + '%';
     });
 
     // Background transparency toggle
