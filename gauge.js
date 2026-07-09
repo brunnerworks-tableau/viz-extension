@@ -99,6 +99,8 @@
   let currentValue = 0;
   let worksheetObj = null;
   let eventUnregisterHandlers = [];
+  let resizeObserver = null;
+  let lastContainerSize = { width: 0, height: 0 };
 
   // Resolved (render-ready) state, recomputed on every data refresh.
   //   goalValue       — the resolved shared Goal value (number|null)
@@ -312,18 +314,13 @@
   // ─── Render Dispatcher ─────────────────────────────────────────────
 
   function renderGauge(animateNeedle) {
-    const type = config.gaugeType || 'semi';
-    if (type === 'linear') {
-      renderLinearGauge(animateNeedle);
-    } else {
-      renderCircularGauge(animateNeedle);
-    }
+    // ── STEP 1: Set text content and formatting FIRST ──
+    // This ensures the title/subtitle DOM elements exist with actual text
+    // BEFORE we measure the container, so the measurement accounts for
+    // the space they occupy.
     document.getElementById('gauge-title').textContent = config.title || '';
     document.getElementById('gauge-subtitle').textContent = config.subtitle || '';
 
-    // ── Optional Title / Subtitle formatting overrides ──
-    //    Each override is applied only when set; otherwise the element keeps
-    //    its original CSS styling so legacy dashboards render unchanged.
     applyTextFormatting(document.getElementById('gauge-title'), {
       family: config.titleFontFamily, size: config.titleFontSize,
       color: config.titleFontColor, weight: config.titleFontWeight,
@@ -335,14 +332,56 @@
       align: config.subtitleAlign,
     });
 
-    // ── Background color (defaults to transparent so the Tableau dashboard
-    //    background shows through). Applied to the iframe body and the gauge
-    //    container so it covers the entire extension viewport. ──
+    // ── STEP 2: Set background color ──
     const bg = config.backgroundColor || 'transparent';
     document.documentElement.style.background = bg;
     document.body.style.background = bg;
     const gaugeContainer = document.getElementById('gauge-container');
     if (gaugeContainer) gaugeContainer.style.background = bg;
+
+    // ── STEP 3: Render the gauge (circular or linear) ──
+    // Now that text is in the DOM, container measurements will be accurate.
+    const type = config.gaugeType || 'semi';
+    if (type === 'linear') {
+      renderLinearGauge(animateNeedle);
+    } else {
+      renderCircularGauge(animateNeedle);
+    }
+
+    // ── STEP 4: Setup ResizeObserver for re-render tracking ──
+    // Monitor the SVG wrapper for size changes. If Tableau filters/parameters
+    // change and cause a container resize, re-render automatically to prevent
+    // the "shrinking arc" bug. Only re-render if dimensions actually changed.
+    setupResizeObserver();
+  }
+
+  function setupResizeObserver() {
+    const container = document.getElementById('gauge-svg-wrapper');
+    if (!container) return;
+
+    // Clean up previous observer if it exists
+    if (resizeObserver) {
+      resizeObserver.disconnect();
+    }
+
+    resizeObserver = new ResizeObserver(() => {
+      const currentW = container.clientWidth || 300;
+      const currentH = container.clientHeight || 200;
+
+      // Only re-render if dimensions actually changed (not on every observer fire)
+      if (currentW !== lastContainerSize.width || currentH !== lastContainerSize.height) {
+        lastContainerSize.width = currentW;
+        lastContainerSize.height = currentH;
+        const type = config.gaugeType || 'semi';
+        if (type === 'linear') {
+          renderLinearGauge(false);
+        } else {
+          renderCircularGauge(false);
+        }
+      }
+    });
+
+    resizeObserver.observe(container);
   }
 
   // ── Apply optional inline text-formatting overrides to a title/subtitle
@@ -383,8 +422,15 @@
     let radius, cx, cy;
     const innerRatio = 1 - config.arcThickness / 100;
 
-    // Room reserved beyond the arc radius for tick marks + min/max labels.
-    const outerExtra = (config.showLabels || config.showTicks) ? 26 : 10;
+    // ── Hybrid Radius Calculation ──
+    // Intelligently balance available space based on whether labels/ticks are shown.
+    // When labels/ticks are hidden, use aggressive scaling (closer to the original 0.82x)
+    // to recapture space. When they are shown, use conservative padding to ensure clarity.
+    
+    const showLabelsOrTicks = config.showLabels || config.showTicks;
+    // Conservative padding (26px) when labels/ticks are present (room for tick marks + labels)
+    // Aggressive padding (8px) when labels/ticks are hidden, allowing 0.82x-like radius scaling
+    const outerExtra = showLabelsOrTicks ? 26 : 8;
     // Minimum breathing room at the top so the arc never collides with the
     // title/subtitle text rendered above the SVG.
     const topPad = 8;
@@ -395,7 +441,9 @@
       // text and the min/max labels.
       const bottomPad = config.showLabels ? 24 : 14;
       const radiusByW = (gaugeW / 2) - outerExtra;
-      const radiusByH = gaugeH - topPad - outerExtra - bottomPad;
+      // Aggressive height-based radius formula when no labels/ticks (recaptures ~14%)
+      const heightFactor = showLabelsOrTicks ? (gaugeH - topPad - outerExtra - bottomPad) : (gaugeH * 0.82);
+      const radiusByH = heightFactor;
       radius = Math.max(20, Math.min(radiusByW, radiusByH));
       cx = gaugeW / 2;
       // Vertically centre the composition while guaranteeing the top padding.
@@ -406,7 +454,11 @@
       // 270° arc opening at the bottom: it spans `radius` above the centre and
       // ~0.707·radius below it, plus outerExtra for ticks/labels on each side.
       const radiusByW = (gaugeW / 2) - outerExtra;
-      const radiusByH = (gaugeH - topPad - 2 * outerExtra) / 1.707;
+      // Aggressive height-based radius formula when no labels/ticks
+      const heightFactor = showLabelsOrTicks 
+        ? (gaugeH - topPad - 2 * outerExtra) / 1.707
+        : (gaugeH * 0.82 / 1.707);
+      const radiusByH = heightFactor;
       radius = Math.max(20, Math.min(radiusByW, radiusByH));
       cx = gaugeW / 2;
       const usedH = 1.707 * radius + 2 * outerExtra;
